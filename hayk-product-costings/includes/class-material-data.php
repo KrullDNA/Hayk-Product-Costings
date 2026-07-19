@@ -21,11 +21,14 @@ if ( ! defined( 'ABSPATH' ) ) {
 
 class HPC_Material_Data {
 
-    const META_TIERS         = '_hpc_price_tiers';
-    const META_UNIT          = '_hpc_unit';
-    const META_WASTAGE       = '_hpc_wastage_pct';
-    const META_AREA_PER_UNIT = '_hpc_area_per_unit';
-    const META_AREA_UNIT     = '_hpc_area_unit';
+    const META_TIERS   = '_hpc_price_tiers';
+    const META_UNIT    = '_hpc_unit';
+    const META_WASTAGE = '_hpc_wastage_pct';
+
+    // Shoe leather usage is always in m². Suppliers may price by m² or ft²;
+    // an area unit's factor is how many m² one of that unit is, so a per-unit
+    // rate is converted to a per-m² rate by dividing by the factor.
+    const M2_PER_SQFT = 0.09290304;
 
     /**
      * The built-in default purchase-unit definitions.
@@ -40,18 +43,56 @@ class HPC_Material_Data {
      */
     public static function default_unit_defs() {
         return array(
-            array( 'singular' => 'skin',   'plural' => 'skins',   'units_per' => 1 ),
-            array( 'singular' => 'pair',   'plural' => 'pairs',   'units_per' => 2 ),
-            array( 'singular' => 'piece',  'plural' => 'pieces',  'units_per' => 1 ),
-            array( 'singular' => 'pack',   'plural' => 'packs',   'units_per' => 1 ),
             array( 'singular' => 'm²',     'plural' => 'm²',      'units_per' => 1 ),
-            array( 'singular' => 'sq ft',  'plural' => 'sq ft',   'units_per' => 1 ),
+            array( 'singular' => 'ft²',    'plural' => 'ft²',     'units_per' => 1 ),
+            array( 'singular' => 'piece',  'plural' => 'pieces',  'units_per' => 1 ),
+            array( 'singular' => 'pair',   'plural' => 'pairs',   'units_per' => 2 ),
+            array( 'singular' => 'pack',   'plural' => 'packs',   'units_per' => 1 ),
             array( 'singular' => 'metre',  'plural' => 'metres',  'units_per' => 1 ),
             array( 'singular' => 'roll',   'plural' => 'rolls',   'units_per' => 1 ),
             array( 'singular' => 'sheet',  'plural' => 'sheets',  'units_per' => 1 ),
             array( 'singular' => 'kg',     'plural' => 'kg',      'units_per' => 1 ),
             array( 'singular' => 'litre',  'plural' => 'litres',  'units_per' => 1 ),
         );
+    }
+
+    /**
+     * The area, in m², of one of the given unit — for units that measure area.
+     *
+     * m² → 1, ft²/sq ft → 0.092903, dm² → 0.01, cm² → 0.0001. Returns 0 for a
+     * non-area unit (piece, pair, pack …). Matching is case-insensitive and
+     * tolerates common spellings (m2, sqm, ft2, sq ft, square feet …).
+     * Filterable via 'hpc_unit_m2_factor'.
+     *
+     * @param string $unit Unit label.
+     * @return float m² per unit, or 0 when not an area unit.
+     */
+    public static function unit_m2_factor( $unit ) {
+        $u = strtolower( trim( (string) $unit ) );
+        $u = str_replace( array( ' ', '.', '_', '-' ), '', $u );
+
+        $map = array(
+            'm²' => 1.0, 'm2' => 1.0, 'sqm' => 1.0, 'sqmetre' => 1.0, 'sqmeter' => 1.0,
+            'squaremetre' => 1.0, 'squaremeter' => 1.0, 'squaremetres' => 1.0, 'squaremeters' => 1.0,
+            'ft²' => self::M2_PER_SQFT, 'ft2' => self::M2_PER_SQFT, 'sqft' => self::M2_PER_SQFT,
+            'squarefeet' => self::M2_PER_SQFT, 'squarefoot' => self::M2_PER_SQFT, 'sqfeet' => self::M2_PER_SQFT,
+            'dm²' => 0.01, 'dm2' => 0.01,
+            'cm²' => 0.0001, 'cm2' => 0.0001,
+        );
+
+        $factor = isset( $map[ $u ] ) ? $map[ $u ] : 0.0;
+        return (float) apply_filters( 'hpc_unit_m2_factor', $factor, $unit );
+    }
+
+    /**
+     * Whether a material is area-priced: its purchase (supplier) unit measures
+     * area (m² / ft²). Such materials are consumed in m² on the product.
+     *
+     * @param int $post_id Material post ID.
+     * @return bool
+     */
+    public static function is_area_priced( $post_id ) {
+        return self::unit_m2_factor( self::get_unit( $post_id ) ) > 0;
     }
 
     /**
@@ -162,53 +203,6 @@ class HPC_Material_Data {
     public static function get_wastage( $post_id ) {
         $w = get_post_meta( $post_id, self::META_WASTAGE, true );
         return ( '' !== $w && null !== $w ) ? max( 0, floatval( $w ) ) : 0;
-    }
-
-    /**
-     * Area covered by one purchase unit (e.g. average m² per skin).
-     *
-     * When set (> 0) the material is in "area mode": it is bought by the
-     * purchase unit (skins, packs …) but consumed by area. The product's
-     * Qty per pair is then a net area, and costing converts area → purchase
-     * units. When 0 the material is costed directly in its purchase unit.
-     *
-     * @param int $post_id Material post ID.
-     * @return float 0 when not set.
-     */
-    public static function get_area_per_unit( $post_id ) {
-        $a = get_post_meta( $post_id, self::META_AREA_PER_UNIT, true );
-        return ( '' !== $a && null !== $a ) ? max( 0, floatval( $a ) ) : 0;
-    }
-
-    /**
-     * The area unit used for area-mode materials (m², sq ft, dm²).
-     *
-     * @param int $post_id Material post ID.
-     * @return string Defaults to 'm²'.
-     */
-    public static function get_area_unit( $post_id ) {
-        $u = get_post_meta( $post_id, self::META_AREA_UNIT, true );
-        $u = is_string( $u ) ? trim( $u ) : '';
-        return '' !== $u ? $u : 'm²';
-    }
-
-    /**
-     * Whether a material is costed by area (bought per unit, consumed by area).
-     *
-     * @param int $post_id Material post ID.
-     * @return bool
-     */
-    public static function is_area_mode( $post_id ) {
-        return self::get_area_per_unit( $post_id ) > 0;
-    }
-
-    /**
-     * The area units offered in the Bulk Pricing dropdown.
-     *
-     * @return string[]
-     */
-    public static function area_unit_options() {
-        return apply_filters( 'hpc_area_unit_options', array( 'm²', 'sq ft', 'dm²' ) );
     }
 
     /**

@@ -115,7 +115,7 @@ class HPC_Product_Metaboxes {
 
         <!-- Row template (hidden) -->
         <script type="text/html" id="tmpl-hpc-row">
-            <tr class="hpc-row" data-index="{{data.i}}" data-unit="" data-wastage="0" data-area-per-unit="0" data-area-unit="" data-tiers="[]">
+            <tr class="hpc-row" data-index="{{data.i}}" data-unit="" data-wastage="0" data-m2factor="0" data-tiers="[]">
                 <td class="hpc-col-sort hpc-drag-handle">&#9776;</td>
                 <td class="hpc-col-type">
                     <input type="text" name="hpc_rows[{{data.i}}][material_type]" value="" class="hpc-field-type" placeholder="<?php esc_attr_e( 'e.g. Leather', 'hayk-product-costings' ); ?>">
@@ -167,13 +167,12 @@ class HPC_Product_Metaboxes {
 
         $currency     = HPC_Settings::currency();
         $wastage      = $material_id ? HPC_Material_Data::get_wastage( $material_id ) : 0;
-        $area_per     = $material_id ? HPC_Material_Data::get_area_per_unit( $material_id ) : 0;
-        $area_unit    = $material_id ? HPC_Material_Data::get_area_unit( $material_id ) : '';
-        $qty_unit     = ( $area_per > 0 ) ? $area_unit : $unit;
+        $m2_factor    = $material_id ? HPC_Material_Data::unit_m2_factor( $unit ) : 0;
+        $qty_unit     = ( $m2_factor > 0 ) ? 'm²' : $unit;
         $moq_display  = ( '' !== $moq ) ? HPC_Material_Data::format_qty_unit( $moq, $unit ) : '';
         $cost_display = ( '' !== $cost_per_moq ) ? $currency . number_format( floatval( $cost_per_moq ), 2 ) : '';
         ?>
-        <tr class="hpc-row" data-index="<?php echo (int) $i; ?>" data-unit="<?php echo esc_attr( $unit ); ?>" data-wastage="<?php echo esc_attr( $wastage ); ?>" data-area-per-unit="<?php echo esc_attr( $area_per ); ?>" data-area-unit="<?php echo esc_attr( $area_unit ); ?>" data-tiers="<?php echo esc_attr( wp_json_encode( $tiers ) ); ?>">
+        <tr class="hpc-row" data-index="<?php echo (int) $i; ?>" data-unit="<?php echo esc_attr( $unit ); ?>" data-wastage="<?php echo esc_attr( $wastage ); ?>" data-m2factor="<?php echo esc_attr( $m2_factor ); ?>" data-tiers="<?php echo esc_attr( wp_json_encode( $tiers ) ); ?>">
             <td class="hpc-col-sort hpc-drag-handle">&#9776;</td>
             <td class="hpc-col-type">
                 <input type="text" name="hpc_rows[<?php echo (int) $i; ?>][material_type]" value="<?php echo esc_attr( $type ); ?>" class="hpc-field-type" placeholder="<?php esc_attr_e( 'e.g. Leather', 'hayk-product-costings' ); ?>">
@@ -310,18 +309,26 @@ class HPC_Product_Metaboxes {
             }
             ?>
             <div id="hpc-purchasing" style="<?php echo empty( $purchasing ) ? 'display:none;' : ''; ?>">
-                <h4 style="margin-bottom:4px;"><?php esc_html_e( 'Purchasing for this run (area-costed materials)', 'hayk-product-costings' ); ?></h4>
+                <h4 style="margin-bottom:4px;"><?php esc_html_e( 'Leather to buy for this run', 'hayk-product-costings' ); ?></h4>
                 <table class="widefat striped">
+                    <thead>
+                        <tr>
+                            <th><?php esc_html_e( 'Material', 'hayk-product-costings' ); ?></th>
+                            <th><?php esc_html_e( 'Usage (m²)', 'hayk-product-costings' ); ?></th>
+                            <th><?php esc_html_e( 'To buy (supplier unit)', 'hayk-product-costings' ); ?></th>
+                        </tr>
+                    </thead>
                     <tbody id="hpc-purchasing-body">
                         <?php foreach ( $purchasing as $line ) : ?>
                             <tr>
                                 <td><?php echo esc_html( $line['title'] ); ?></td>
-                                <td><?php echo esc_html( HPC_Material_Data::format_qty_unit( $line['units_per_run'], $line['unit'], false ) ); ?></td>
+                                <td><?php echo esc_html( self::fmt_qty( $line['gross_run_area'] ) . ' m²' ); ?></td>
+                                <td><strong><?php echo esc_html( self::fmt_qty( $line['units_per_run'] ) . ' ' . $line['unit'] ); ?></strong></td>
                             </tr>
                         <?php endforeach; ?>
                     </tbody>
                 </table>
-                <p class="description"><?php esc_html_e( 'Whole purchase units to buy to cover the production run (net area × (1 + wastage %) ÷ average area per unit, rounded up).', 'hayk-product-costings' ); ?></p>
+                <p class="description"><?php esc_html_e( 'Total leather to buy = net m² per pair × (1 + wastage %) × production run, shown in m² and converted to the supplier\'s selling unit (m² or ft²). Any supplier minimum order (MOQ) still applies.', 'hayk-product-costings' ); ?></p>
             </div>
         </div>
         <?php

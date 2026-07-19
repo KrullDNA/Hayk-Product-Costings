@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Hayk Product Costings
  * Description: Shoe product costing tool. Adds a Bulk Pricing metabox to the Materials CPT and a dynamic Materials table to the Products CPT that pulls cost/MOQ data from Materials, then calculates per-pair and full production-run costs. Front-end display via Elementor widgets.
- * Version: 1.2.0
+ * Version: 1.3.0
  * Author: KrullDNA
  * Text Domain: hayk-product-costings
  */
@@ -13,7 +13,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 
 define( 'HPC_PLUGIN_DIR', plugin_dir_path( __FILE__ ) );
 define( 'HPC_PLUGIN_URL', plugin_dir_url( __FILE__ ) );
-define( 'HPC_VERSION', '1.2.0' );
+define( 'HPC_VERSION', '1.3.0' );
 
 /**
  * Post type slugs. Filterable so the plugin can be pointed at differently

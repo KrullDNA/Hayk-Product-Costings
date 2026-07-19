@@ -63,6 +63,30 @@ reaches, floored at the smallest MOQ. A single break always uses that break.
 
 == Changelog ==
 
+= 1.3.0 =
+* Leather is now costed by AREA (m² or ft²), replacing the skins model.
+  Set the material's unit to m² or ft² (the supplier's selling unit) and enter
+  the MOQ + cost in that unit. On the product, leather usage (Qty per pair) is
+  always entered in m² — the client's metric standard — and a ft² supplier
+  price is converted to a per-m² rate automatically (1 ft² = 0.092903 m²).
+* Cost Summary → "Leather to buy for this run" reports the total m² needed and
+  the equivalent in the supplier's unit (m²/ft²).
+* Removed the per-material "average area per skin" field (no longer needed —
+  m²↔ft² is a fixed conversion). Default units updated: m², ft², pieces,
+  pairs, packs, etc. (skins dropped). Unit conversions are filterable via
+  'hpc_unit_m2_factor'.
+
+= 1.2.1 =
+* Clearer skins/area costing on the product Materials table: for an
+  area-costed material you enter the net area per pair (m²) and the row now
+  shows the fraction of a skin used per pair (e.g. "≈ 0.29 skin/pair").
+* Cost Summary → Purchasing now reports, per area-costed material: total area
+  needed for the run, whole units (skins) to buy, and the spare offcut left
+  on the last unit. Per-pair cost still charges only the area used (skins are
+  shared across pairs; the run rounds up to whole skins).
+* Front-end Materials Table shows the same per-pair skin fraction under the
+  Qty per pair value in area mode.
+
 = 1.2.0 =
 * Leather / area costing: a material can now be bought by the unit (skins,
   packs) but costed by area. Set "Average area per unit" (e.g. 1.2 m² per
