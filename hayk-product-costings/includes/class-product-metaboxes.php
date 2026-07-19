@@ -312,16 +312,26 @@ class HPC_Product_Metaboxes {
             <div id="hpc-purchasing" style="<?php echo empty( $purchasing ) ? 'display:none;' : ''; ?>">
                 <h4 style="margin-bottom:4px;"><?php esc_html_e( 'Purchasing for this run (area-costed materials)', 'hayk-product-costings' ); ?></h4>
                 <table class="widefat striped">
+                    <thead>
+                        <tr>
+                            <th><?php esc_html_e( 'Material', 'hayk-product-costings' ); ?></th>
+                            <th><?php esc_html_e( 'Area needed', 'hayk-product-costings' ); ?></th>
+                            <th><?php esc_html_e( 'To buy', 'hayk-product-costings' ); ?></th>
+                            <th><?php esc_html_e( 'Spare', 'hayk-product-costings' ); ?></th>
+                        </tr>
+                    </thead>
                     <tbody id="hpc-purchasing-body">
                         <?php foreach ( $purchasing as $line ) : ?>
                             <tr>
                                 <td><?php echo esc_html( $line['title'] ); ?></td>
-                                <td><?php echo esc_html( HPC_Material_Data::format_qty_unit( $line['units_per_run'], $line['unit'], false ) ); ?></td>
+                                <td><?php echo esc_html( self::fmt_qty( $line['gross_run_area'] ) . ' ' . $line['qty_unit'] ); ?></td>
+                                <td><strong><?php echo esc_html( HPC_Material_Data::format_qty_unit( $line['units_per_run'], $line['unit'], false ) ); ?></strong></td>
+                                <td><?php echo esc_html( self::fmt_qty( $line['spare_area'] ) . ' ' . $line['qty_unit'] ); ?></td>
                             </tr>
                         <?php endforeach; ?>
                     </tbody>
                 </table>
-                <p class="description"><?php esc_html_e( 'Whole purchase units to buy to cover the production run (net area × (1 + wastage %) ÷ average area per unit, rounded up).', 'hayk-product-costings' ); ?></p>
+                <p class="description"><?php esc_html_e( 'To buy = whole units to cover the run: net area × (1 + wastage %) ÷ average area per unit, rounded up. Spare = usable offcut left on the last unit. Per-pair cost charges only the area used, not the spare.', 'hayk-product-costings' ); ?></p>
             </div>
         </div>
         <?php

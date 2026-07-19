@@ -121,8 +121,11 @@ class HPC_Costing_Calculator {
                     $rate = $rate * ( 1 + $margin_pct / 100 );
                 }
 
-                $cost_per_pair = $units_per_pair * $rate;
-                $units_per_run = $units_per_pair * max( 0, $run );
+                $cost_per_pair  = $units_per_pair * $rate;
+                $gross_run_area = $gross_area * max( 0, $run );          // total area for the run
+                $units_run_raw  = $units_per_pair * max( 0, $run );      // fractional units for the run
+                $units_per_run  = ( $units_run_raw > 0 ) ? (int) ceil( $units_run_raw - 1e-9 ) : 0; // whole units to buy
+                $spare_area     = ( $units_per_run * $area_per ) - $gross_run_area; // offcut on the last unit
 
                 $lines[] = array(
                     'material_id'    => $material_id,
@@ -139,7 +142,10 @@ class HPC_Costing_Calculator {
                     'moq'            => $moq,
                     'qty_per_pair'   => $qty_per_pair,  // net area
                     'cost_per_pair'  => $cost_per_pair,
-                    'units_per_run'  => ceil( $units_per_run - 1e-9 ), // whole units to buy
+                    'units_per_pair' => $units_per_pair, // fraction of a skin used per pair
+                    'gross_run_area' => $gross_run_area,
+                    'units_per_run'  => $units_per_run,
+                    'spare_area'     => max( 0, $spare_area ),
                 );
                 continue;
             }

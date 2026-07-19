@@ -55,6 +55,13 @@
     display: inline-block;
 }
 
+.hpc-mt-skinhint {
+    display: block;
+    margin-top: 4px;
+    font-size: 0.8em;
+    opacity: 0.6;
+}
+
 .hpc-mt-empty {
     padding: 20px;
     text-align: center;
