@@ -63,6 +63,21 @@ reaches, floored at the smallest MOQ. A single break always uses that break.
 
 == Changelog ==
 
+= 1.1.0 =
+* Cost fields now read the client's own custom fields: production_run,
+  packaging_unit_cost, labour_costs, facility_running_costs, and the new
+  miscellaneous_cost (added to Full production cost). The plugin's duplicate
+  Production & Costs metabox has been removed to avoid double entry.
+* Packaging production-run total = packaging_unit_cost × production_run.
+* Leather costing: per-material Wastage % (cutting/consumption allowance) in
+  the Bulk Pricing box; a global Leather Margin % in Settings; and a per-row
+  "Apply margin" checkbox that uplifts that break's cost as a buffer.
+* Purchase Unit is now a managed dropdown (skins, pairs, pieces, packs, m² …)
+  editable under Costings Settings, with singular/plural forms and a "units
+  per" count (e.g. pairs = 2 units) shown next to quantities.
+* Materials Table widget: separate Image Width and Image Height controls.
+* Cost Metrics widget: added the Miscellaneous cost metric.
+
 = 1.0.0 =
 * Initial release. Adapted from Apotheca Product Costings for shoe production
   costing: Bulk Pricing on Materials, dynamic Materials table on Products,

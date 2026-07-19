@@ -37,15 +37,6 @@ class HPC_Product_Metaboxes {
         );
 
         add_meta_box(
-            'hpc_production_costs',
-            __( 'Production & Costs', 'hayk-product-costings' ),
-            array( $this, 'render_production_metabox' ),
-            HPC_PRODUCTS_CPT,
-            'normal',
-            'default'
-        );
-
-        add_meta_box(
             'hpc_cost_summary',
             __( 'Cost Summary', 'hayk-product-costings' ),
             array( $this, 'render_cost_summary_metabox' ),
@@ -166,10 +157,11 @@ class HPC_Product_Metaboxes {
         }
 
         $currency    = HPC_Settings::currency();
-        $moq_display = ( '' !== $moq ) ? self::fmt_qty( $moq ) . ' ' . $unit : '';
+        $wastage      = $material_id ? HPC_Material_Data::get_wastage( $material_id ) : 0;
+        $moq_display  = ( '' !== $moq ) ? HPC_Material_Data::format_qty_unit( $moq, $unit ) : '';
         $cost_display = ( '' !== $cost_per_moq ) ? $currency . number_format( floatval( $cost_per_moq ), 2 ) : '';
         ?>
-        <tr class="hpc-row" data-index="<?php echo (int) $i; ?>" data-unit="<?php echo esc_attr( $unit ); ?>" data-tiers="<?php echo esc_attr( wp_json_encode( $tiers ) ); ?>">
+        <tr class="hpc-row" data-index="<?php echo (int) $i; ?>" data-unit="<?php echo esc_attr( $unit ); ?>" data-wastage="<?php echo esc_attr( $wastage ); ?>" data-tiers="<?php echo esc_attr( wp_json_encode( $tiers ) ); ?>">
             <td class="hpc-col-sort hpc-drag-handle">&#9776;</td>
             <td class="hpc-col-type">
                 <input type="text" name="hpc_rows[<?php echo (int) $i; ?>][material_type]" value="<?php echo esc_attr( $type ); ?>" class="hpc-field-type" placeholder="<?php esc_attr_e( 'e.g. Leather', 'hayk-product-costings' ); ?>">
@@ -201,75 +193,47 @@ class HPC_Product_Metaboxes {
     }
 
     /* ───────────────────────────────────────────────
-     * Production & Costs
-     * ─────────────────────────────────────────────── */
-
-    public function render_production_metabox( $post ) {
-        $run       = get_post_meta( $post->ID, '_hpc_production_run', true );
-        $packaging = get_post_meta( $post->ID, '_hpc_packaging_cost_per_pair', true );
-        $labour    = get_post_meta( $post->ID, '_hpc_labour', true );
-        $facility  = get_post_meta( $post->ID, '_hpc_facility_running_costs', true );
-        $currency  = HPC_Settings::currency();
-        ?>
-        <p class="description">
-            <?php esc_html_e( 'These drive the production-run figures. Production run is the number of pairs made. Packaging is a per-pair cost; Labour and Facility running costs are fixed totals for the whole run.', 'hayk-product-costings' ); ?>
-        </p>
-        <table class="form-table" role="presentation">
-            <tr>
-                <th scope="row"><label for="hpc-production-run"><?php esc_html_e( 'Production run (pairs)', 'hayk-product-costings' ); ?></label></th>
-                <td><input type="number" step="any" min="0" id="hpc-production-run" name="hpc_production_run" value="<?php echo esc_attr( $run ); ?>" class="regular-text" placeholder="300"></td>
-            </tr>
-            <tr>
-                <th scope="row"><label for="hpc-packaging"><?php esc_html_e( 'Packaging cost per pair', 'hayk-product-costings' ); ?></label></th>
-                <td>
-                    <?php echo esc_html( $currency ); ?><input type="number" step="any" min="0" id="hpc-packaging" name="hpc_packaging_cost_per_pair" value="<?php echo esc_attr( $packaging ); ?>" class="regular-text" placeholder="0.65">
-                    <span class="description" id="hpc-packaging-total"></span>
-                </td>
-            </tr>
-            <tr>
-                <th scope="row"><label for="hpc-labour"><?php esc_html_e( 'Labour costs (run total)', 'hayk-product-costings' ); ?></label></th>
-                <td><?php echo esc_html( $currency ); ?><input type="number" step="any" min="0" id="hpc-labour" name="hpc_labour" value="<?php echo esc_attr( $labour ); ?>" class="regular-text" placeholder="1000"></td>
-            </tr>
-            <tr>
-                <th scope="row"><label for="hpc-facility"><?php esc_html_e( 'Facility running costs (run total)', 'hayk-product-costings' ); ?></label></th>
-                <td><?php echo esc_html( $currency ); ?><input type="number" step="any" min="0" id="hpc-facility" name="hpc_facility_running_costs" value="<?php echo esc_attr( $facility ); ?>" class="regular-text" placeholder="1200"></td>
-            </tr>
-        </table>
-        <?php
-    }
-
-    /* ───────────────────────────────────────────────
      * Cost Summary (live)
      * ─────────────────────────────────────────────── */
 
     public function render_cost_summary_metabox( $post ) {
+        // Server-computed baseline (from the product's custom cost fields) so
+        // the summary is correct on load; JS keeps it live as the Materials
+        // table is edited.
+        $m        = HPC_Costing_Calculator::metrics( $post->ID );
+        $currency = HPC_Settings::currency();
+        $money    = function ( $v ) use ( $currency ) { return $currency . number_format( floatval( $v ), 2 ); };
         ?>
         <div id="hpc-cost-summary" class="hpc-cost-summary">
-            <p class="description"><?php esc_html_e( 'Calculated automatically from the Materials table and the Production & Costs fields above — matching the front-end widgets.', 'hayk-product-costings' ); ?></p>
+            <p class="description"><?php esc_html_e( 'Calculated automatically from the Materials table and your product cost fields (Production Run, Packaging unit cost, Labour costs, Facility running costs, Miscellaneous cost) — matching the front-end widgets. Save the product to refresh after changing those fields.', 'hayk-product-costings' ); ?></p>
             <table class="widefat striped">
                 <tr>
                     <th><?php esc_html_e( 'Material cost per pair', 'hayk-product-costings' ); ?></th>
-                    <td id="hpc-sum-matpair">&mdash;</td>
+                    <td id="hpc-sum-matpair"><?php echo esc_html( $money( $m['material_cost_per_pair'] ) ); ?></td>
                 </tr>
                 <tr>
                     <th><?php esc_html_e( 'Prod. run material cost', 'hayk-product-costings' ); ?></th>
-                    <td id="hpc-sum-matrun">&mdash;</td>
+                    <td id="hpc-sum-matrun"><?php echo esc_html( $money( $m['prod_run_material_cost'] ) ); ?></td>
                 </tr>
                 <tr>
                     <th><?php esc_html_e( 'Packaging (run total)', 'hayk-product-costings' ); ?></th>
-                    <td id="hpc-sum-pkg">&mdash;</td>
+                    <td id="hpc-sum-pkg"><?php echo esc_html( $money( $m['packaging_run_total'] ) ); ?></td>
                 </tr>
                 <tr>
                     <th><?php esc_html_e( 'Manufacturing (labour + facility)', 'hayk-product-costings' ); ?></th>
-                    <td id="hpc-sum-mfg">&mdash;</td>
+                    <td id="hpc-sum-mfg"><?php echo esc_html( $money( $m['manufacturing_total'] ) ); ?></td>
+                </tr>
+                <tr>
+                    <th><?php esc_html_e( 'Miscellaneous cost', 'hayk-product-costings' ); ?></th>
+                    <td id="hpc-sum-misc"><?php echo esc_html( $money( $m['miscellaneous_costs'] ) ); ?></td>
                 </tr>
                 <tr>
                     <th><strong><?php esc_html_e( 'Full production cost', 'hayk-product-costings' ); ?></strong></th>
-                    <td id="hpc-sum-full"><strong>&mdash;</strong></td>
+                    <td id="hpc-sum-full"><strong><?php echo esc_html( $money( $m['full_production_cost'] ) ); ?></strong></td>
                 </tr>
                 <tr>
                     <th><strong><?php esc_html_e( 'Single pair cost', 'hayk-product-costings' ); ?></strong></th>
-                    <td id="hpc-sum-pair"><strong>&mdash;</strong></td>
+                    <td id="hpc-sum-pair"><strong><?php echo esc_html( $money( $m['single_pair_cost'] ) ); ?></strong></td>
                 </tr>
             </table>
         </div>
@@ -314,21 +278,10 @@ class HPC_Product_Metaboxes {
         }
         update_post_meta( $post_id, '_hpc_material_rows', $clean );
 
-        // --- Production & Costs ---
-        $fields = array(
-            'hpc_production_run'           => '_hpc_production_run',
-            'hpc_packaging_cost_per_pair'  => '_hpc_packaging_cost_per_pair',
-            'hpc_labour'                   => '_hpc_labour',
-            'hpc_facility_running_costs'   => '_hpc_facility_running_costs',
-        );
-        foreach ( $fields as $field => $meta_key ) {
-            $val = isset( $_POST[ $field ] ) ? sanitize_text_field( wp_unslash( $_POST[ $field ] ) ) : '';
-            if ( '' === $val ) {
-                delete_post_meta( $post_id, $meta_key );
-            } else {
-                update_post_meta( $post_id, $meta_key, floatval( $val ) );
-            }
-        }
+        // Production-run and cost inputs (Production Run, Packaging unit cost,
+        // Labour costs, Facility running costs, Miscellaneous cost) are the
+        // client's own custom fields (JetEngine), read by the calculator — the
+        // plugin does not manage them here.
     }
 
     /**

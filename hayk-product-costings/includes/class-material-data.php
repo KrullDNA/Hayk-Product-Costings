@@ -4,8 +4,12 @@
  *
  * The Materials CPT stores "bulk pricing" as one or more quantity breaks.
  * Each break is a purchase quantity (the MOQ, in the material's own unit —
- * e.g. piece/s, m², pair/s) and the total cost to buy that quantity (the
- * "Cost per MOQ"). The per-unit rate for a break is cost ÷ qty.
+ * e.g. skins, pairs, pieces, packs, m²) and the total cost to buy that
+ * quantity (the "Cost per MOQ"). The per-unit rate for a break is cost ÷ qty.
+ *
+ * Leather-style materials can also carry a wastage % (a cutting/consumption
+ * allowance for irregular skins) and, per break, an "apply margin" flag that
+ * upflifts that break's cost by the global leather margin %.
  *
  * All reads of material fields go through here so the meta-key handling
  * lives in one place.
@@ -17,25 +21,151 @@ if ( ! defined( 'ABSPATH' ) ) {
 
 class HPC_Material_Data {
 
-    const META_TIERS = '_hpc_price_tiers';
-    const META_UNIT  = '_hpc_unit';
+    const META_TIERS   = '_hpc_price_tiers';
+    const META_UNIT    = '_hpc_unit';
+    const META_WASTAGE = '_hpc_wastage_pct';
 
     /**
-     * The purchase unit for a material (piece/s, m², pair/s …).
+     * The built-in default purchase-unit definitions.
+     *
+     * Each definition has a singular and plural label and a "units per"
+     * count — how many individual units make up one of this purchase unit
+     * (e.g. a "pair" is 2 units). units_per is informational (shown next to
+     * quantities); it does not alter the money maths, since MOQ, Cost per MOQ
+     * and Qty per pair are all expressed in the same chosen unit.
+     *
+     * @return array<int,array{singular:string,plural:string,units_per:float}>
+     */
+    public static function default_unit_defs() {
+        return array(
+            array( 'singular' => 'skin',   'plural' => 'skins',   'units_per' => 1 ),
+            array( 'singular' => 'pair',   'plural' => 'pairs',   'units_per' => 2 ),
+            array( 'singular' => 'piece',  'plural' => 'pieces',  'units_per' => 1 ),
+            array( 'singular' => 'pack',   'plural' => 'packs',   'units_per' => 1 ),
+            array( 'singular' => 'm²',     'plural' => 'm²',      'units_per' => 1 ),
+            array( 'singular' => 'sq ft',  'plural' => 'sq ft',   'units_per' => 1 ),
+            array( 'singular' => 'metre',  'plural' => 'metres',  'units_per' => 1 ),
+            array( 'singular' => 'roll',   'plural' => 'rolls',   'units_per' => 1 ),
+            array( 'singular' => 'sheet',  'plural' => 'sheets',  'units_per' => 1 ),
+            array( 'singular' => 'kg',     'plural' => 'kg',      'units_per' => 1 ),
+            array( 'singular' => 'litre',  'plural' => 'litres',  'units_per' => 1 ),
+        );
+    }
+
+    /**
+     * All purchase-unit definitions, read from Costings Settings with a
+     * fallback to the defaults. Filterable via 'hpc_unit_defs'.
+     *
+     * @return array<int,array{singular:string,plural:string,units_per:float}>
+     */
+    public static function unit_defs() {
+        $saved = get_option( 'hpc_units', null );
+        $defs  = array();
+
+        if ( is_array( $saved ) && ! empty( $saved ) ) {
+            foreach ( $saved as $row ) {
+                if ( is_array( $row ) ) {
+                    $plural = isset( $row['plural'] ) ? trim( $row['plural'] ) : '';
+                    if ( '' === $plural ) {
+                        continue;
+                    }
+                    $defs[] = array(
+                        'singular'  => isset( $row['singular'] ) && '' !== trim( $row['singular'] ) ? trim( $row['singular'] ) : $plural,
+                        'plural'    => $plural,
+                        'units_per' => isset( $row['units_per'] ) ? max( 1, floatval( $row['units_per'] ) ) : 1,
+                    );
+                } elseif ( is_string( $row ) && '' !== trim( $row ) ) {
+                    // Backward-compat: a plain string list.
+                    $defs[] = array( 'singular' => trim( $row ), 'plural' => trim( $row ), 'units_per' => 1 );
+                }
+            }
+        }
+
+        if ( empty( $defs ) ) {
+            $defs = self::default_unit_defs();
+        }
+
+        return apply_filters( 'hpc_unit_defs', $defs );
+    }
+
+    /**
+     * The plural unit labels, for the bulk pricing dropdown.
+     *
+     * @return string[]
+     */
+    public static function unit_options() {
+        return array_map( function ( $d ) { return $d['plural']; }, self::unit_defs() );
+    }
+
+    /**
+     * Look up a unit definition by its stored (plural) label, matching the
+     * singular form too. Returns a sensible default when unknown.
+     *
+     * @param string $unit Stored unit label.
+     * @return array{singular:string,plural:string,units_per:float}
+     */
+    public static function unit_info( $unit ) {
+        $unit = trim( (string) $unit );
+        foreach ( self::unit_defs() as $d ) {
+            if ( strcasecmp( $d['plural'], $unit ) === 0 || strcasecmp( $d['singular'], $unit ) === 0 ) {
+                return $d;
+            }
+        }
+        return array( 'singular' => $unit, 'plural' => $unit, 'units_per' => 1 );
+    }
+
+    /**
+     * Format a quantity with its unit, choosing singular/plural by amount and
+     * optionally appending the equivalent number of individual units.
+     *
+     * @param float  $qty        The quantity.
+     * @param string $unit       Stored unit label.
+     * @param bool   $show_units Append "(N units)" when units_per > 1.
+     * @return string e.g. "1 pair (2 units)", "5 skins".
+     */
+    public static function format_qty_unit( $qty, $unit, $show_units = true ) {
+        $qty  = floatval( $qty );
+        $info = self::unit_info( $unit );
+        $label = ( abs( $qty - 1 ) < 1e-9 ) ? $info['singular'] : $info['plural'];
+
+        $num = ( floor( $qty ) == $qty ) ? number_format( $qty, 0 ) : rtrim( rtrim( number_format( $qty, 4 ), '0' ), '.' );
+        $out = $num . ' ' . $label;
+
+        if ( $show_units && $info['units_per'] > 1 && $qty > 0 ) {
+            $total = $qty * $info['units_per'];
+            $tnum  = ( floor( $total ) == $total ) ? number_format( $total, 0 ) : rtrim( rtrim( number_format( $total, 4 ), '0' ), '.' );
+            $out  .= ' (' . $tnum . ' units)';
+        }
+        return $out;
+    }
+
+    /**
+     * The purchase unit for a material (skins, pairs, pieces, packs …).
      *
      * @param int $post_id Material post ID.
-     * @return string Defaults to 'piece/s' when not set.
+     * @return string Defaults to 'pieces' when not set.
      */
     public static function get_unit( $post_id ) {
         $unit = get_post_meta( $post_id, self::META_UNIT, true );
         $unit = is_string( $unit ) ? trim( $unit ) : '';
-        return '' !== $unit ? $unit : 'piece/s';
+        return '' !== $unit ? $unit : 'pieces';
+    }
+
+    /**
+     * The wastage / cutting-allowance percentage for a material.
+     *
+     * @param int $post_id Material post ID.
+     * @return float 0 when not set.
+     */
+    public static function get_wastage( $post_id ) {
+        $w = get_post_meta( $post_id, self::META_WASTAGE, true );
+        return ( '' !== $w && null !== $w ) ? max( 0, floatval( $w ) ) : 0;
     }
 
     /**
      * Raw bulk pricing tiers exactly as entered (for the editor).
      *
-     * Each tier: array( 'qty' => float, 'cost' => float ).
+     * Each tier: array( 'qty' => float, 'cost' => float, 'apply_margin' => bool ).
      * Rows with a non-positive qty or cost are dropped.
      *
      * @param int $post_id Material post ID.
@@ -52,7 +182,11 @@ class HPC_Material_Data {
             $qty  = isset( $row['qty'] ) ? floatval( $row['qty'] ) : 0;
             $cost = isset( $row['cost'] ) ? floatval( $row['cost'] ) : 0;
             if ( $qty > 0 && $cost > 0 ) {
-                $clean[] = array( 'qty' => $qty, 'cost' => $cost );
+                $clean[] = array(
+                    'qty'          => $qty,
+                    'cost'         => $cost,
+                    'apply_margin' => ! empty( $row['apply_margin'] ),
+                );
             }
         }
         return $clean;
@@ -62,7 +196,7 @@ class HPC_Material_Data {
      * Bulk pricing tiers sorted ascending by quantity (smallest MOQ first).
      *
      * @param int $post_id Material post ID.
-     * @return array<int,array{qty:float,cost:float}>
+     * @return array<int,array{qty:float,cost:float,apply_margin:bool}>
      */
     public static function get_price_tiers( $post_id ) {
         $tiers = self::get_price_tiers_raw( $post_id );
@@ -117,13 +251,11 @@ class HPC_Material_Data {
      * Picks the largest quantity break whose MOQ is at or below the quantity
      * needed (the best price break actually reached). When the need is below
      * the smallest break — you must still buy at least the MOQ — the smallest
-     * break applies. This is the shoe equivalent of the cosmetic plugin's
-     * quantity-break rate selection; with a single tier it always returns
-     * that tier.
+     * break applies. With a single tier it always returns that tier.
      *
      * @param int   $post_id     Material post ID.
-     * @param float $qty_needed  Units required (units × pairs).
-     * @return array{qty:float,cost:float,rate:float}|null
+     * @param float $qty_needed  Units required (units × pairs, incl. wastage).
+     * @return array{qty:float,cost:float,rate:float,apply_margin:bool}|null
      */
     public static function get_applicable_tier( $post_id, $qty_needed ) {
         $tiers = self::get_price_tiers( $post_id );
@@ -139,9 +271,10 @@ class HPC_Material_Data {
         }
 
         return array(
-            'qty'  => $chosen['qty'],
-            'cost' => $chosen['cost'],
-            'rate' => $chosen['qty'] > 0 ? $chosen['cost'] / $chosen['qty'] : 0,
+            'qty'          => $chosen['qty'],
+            'cost'         => $chosen['cost'],
+            'rate'         => $chosen['qty'] > 0 ? $chosen['cost'] / $chosen['qty'] : 0,
+            'apply_margin' => ! empty( $chosen['apply_margin'] ),
         );
     }
 

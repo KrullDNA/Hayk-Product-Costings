@@ -51,6 +51,7 @@ class HPC_Widget_Cost_Metrics extends \Elementor\Widget_Base {
             'packaging_cost_per_pair' => 'Packaging cost per pair',
             'labour'                  => 'Labour costs',
             'facility_running_costs'  => 'Facility running costs',
+            'miscellaneous_costs'     => 'Miscellaneous cost',
             'manufacturing_total'     => 'Manufacturing costs (total)',
         );
     }

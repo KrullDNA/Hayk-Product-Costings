@@ -156,11 +156,20 @@ class HPC_Widget_Materials_Table extends \Elementor\Widget_Base {
         ) );
 
         $this->add_control( 'image_size', array(
-            'label'      => esc_html__( 'Image Size (px)', 'hayk-product-costings' ),
-            'type'       => \Elementor\Controls_Manager::SLIDER,
-            'range'      => array( 'px' => array( 'min' => 30, 'max' => 200 ) ),
-            'default'    => array( 'unit' => 'px', 'size' => 90 ),
-            'selectors'  => array( '{{WRAPPER}} .hpc-mt-image img' => 'width: {{SIZE}}{{UNIT}}; height: {{SIZE}}{{UNIT}}; object-fit: cover;' ),
+            'label'       => esc_html__( 'Image Height (px)', 'hayk-product-costings' ),
+            'type'        => \Elementor\Controls_Manager::SLIDER,
+            'range'       => array( 'px' => array( 'min' => 20, 'max' => 400 ) ),
+            'default'     => array( 'unit' => 'px', 'size' => 90 ),
+            'selectors'   => array( '{{WRAPPER}} .hpc-mt-image img' => 'height: {{SIZE}}{{UNIT}}; object-fit: cover;' ),
+        ) );
+
+        $this->add_control( 'image_width', array(
+            'label'       => esc_html__( 'Image Width (px)', 'hayk-product-costings' ),
+            'type'        => \Elementor\Controls_Manager::SLIDER,
+            'range'       => array( 'px' => array( 'min' => 20, 'max' => 400 ) ),
+            'default'     => array( 'unit' => 'px', 'size' => 90 ),
+            'description'  => esc_html__( 'Set independently of height. For a square thumbnail, use the same value as Image Height.', 'hayk-product-costings' ),
+            'selectors'   => array( '{{WRAPPER}} .hpc-mt-image img' => 'width: {{SIZE}}{{UNIT}}; object-fit: cover;' ),
         ) );
 
         $this->end_controls_section();
@@ -230,8 +239,8 @@ class HPC_Widget_Materials_Table extends \Elementor\Widget_Base {
                     <?php foreach ( $lines as $line ) : ?>
                         <?php
                         $unit         = $line['unit'];
-                        $moq_display  = HPC_Product_Metaboxes::fmt_qty( $line['moq'] ) . ' ' . $unit;
-                        $qty_display  = HPC_Product_Metaboxes::fmt_qty( $line['qty_per_pair'] ) . ' ' . $unit;
+                        $moq_display  = HPC_Material_Data::format_qty_unit( $line['moq'], $unit );
+                        $qty_display  = HPC_Material_Data::format_qty_unit( $line['qty_per_pair'], $unit );
                         $mat_link     = get_permalink( $line['material_id'] );
                         ?>
                         <tr>

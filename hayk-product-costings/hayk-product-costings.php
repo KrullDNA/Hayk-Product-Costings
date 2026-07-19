@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Hayk Product Costings
  * Description: Shoe product costing tool. Adds a Bulk Pricing metabox to the Materials CPT and a dynamic Materials table to the Products CPT that pulls cost/MOQ data from Materials, then calculates per-pair and full production-run costs. Front-end display via Elementor widgets.
- * Version: 1.0.0
+ * Version: 1.1.0
  * Author: KrullDNA
  * Text Domain: hayk-product-costings
  */
@@ -13,7 +13,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 
 define( 'HPC_PLUGIN_DIR', plugin_dir_path( __FILE__ ) );
 define( 'HPC_PLUGIN_URL', plugin_dir_url( __FILE__ ) );
-define( 'HPC_VERSION', '1.0.0' );
+define( 'HPC_VERSION', '1.1.0' );
 
 /**
  * Post type slugs. Filterable so the plugin can be pointed at differently
@@ -92,10 +92,38 @@ final class Hayk_Product_Costings {
             wp_enqueue_script( 'jquery-ui-sortable' );
             wp_enqueue_script( 'hpc-admin', HPC_PLUGIN_URL . 'assets/js/admin.js', array( 'jquery', 'jquery-ui-sortable', 'wp-util' ), HPC_VERSION, true );
 
+            // Current product's cost fields (the client's own custom fields),
+            // so the live Cost Summary is accurate even though the plugin no
+            // longer renders its own inputs for them.
+            $post_id = 0;
+            if ( isset( $_GET['post'] ) ) {
+                $post_id = absint( $_GET['post'] );
+            } elseif ( isset( $GLOBALS['post']->ID ) ) {
+                $post_id = (int) $GLOBALS['post']->ID;
+            }
+
+            $fields = array( 'production_run' => 0, 'packaging_cost_per_pair' => 0, 'labour' => 0, 'facility_running_costs' => 0, 'miscellaneous_costs' => 0 );
+            if ( $post_id ) {
+                foreach ( array_keys( $fields ) as $f ) {
+                    $fields[ $f ] = HPC_Costing_Calculator::get_field( $post_id, $f );
+                }
+            }
+
+            // Unit definitions keyed by plural label, for live singular/plural
+            // and "units per" display in the Materials repeater.
+            $units = array();
+            foreach ( HPC_Material_Data::unit_defs() as $d ) {
+                $units[ $d['plural'] ] = $d;
+                $units[ $d['singular'] ] = $d;
+            }
+
             wp_localize_script( 'hpc-admin', 'hpcData', array(
-                'ajaxUrl'  => admin_url( 'admin-ajax.php' ),
-                'nonce'    => wp_create_nonce( 'hpc_nonce' ),
-                'currency' => HPC_Settings::currency(),
+                'ajaxUrl'      => admin_url( 'admin-ajax.php' ),
+                'nonce'        => wp_create_nonce( 'hpc_nonce' ),
+                'currency'     => HPC_Settings::currency(),
+                'leatherMargin' => HPC_Settings::leather_margin_pct(),
+                'fields'       => $fields,
+                'units'        => $units,
             ) );
         }
     }
