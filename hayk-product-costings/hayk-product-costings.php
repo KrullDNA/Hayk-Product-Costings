@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Hayk Product Costings
  * Description: Shoe product costing tool. Adds a Bulk Pricing metabox to the Materials CPT and a dynamic Materials table to the Products CPT that pulls cost/MOQ data from Materials, then calculates per-pair and full production-run costs. Front-end display via Elementor widgets.
- * Version: 1.1.0
+ * Version: 1.2.0
  * Author: KrullDNA
  * Text Domain: hayk-product-costings
  */
@@ -13,7 +13,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 
 define( 'HPC_PLUGIN_DIR', plugin_dir_path( __FILE__ ) );
 define( 'HPC_PLUGIN_URL', plugin_dir_url( __FILE__ ) );
-define( 'HPC_VERSION', '1.1.0' );
+define( 'HPC_VERSION', '1.2.0' );
 
 /**
  * Post type slugs. Filterable so the plugin can be pointed at differently
@@ -83,8 +83,8 @@ final class Hayk_Product_Costings {
 
         wp_enqueue_style( 'hpc-admin', HPC_PLUGIN_URL . 'assets/css/admin.css', array(), HPC_VERSION );
 
-        if ( $is_material_screen ) {
-            // For drag-to-reorder in the Bulk Pricing metabox.
+        if ( $is_material_screen || $is_settings_page ) {
+            // Drag-to-reorder: Bulk Pricing tiers / Settings unit rows.
             wp_enqueue_script( 'jquery-ui-sortable' );
         }
 
@@ -92,9 +92,9 @@ final class Hayk_Product_Costings {
             wp_enqueue_script( 'jquery-ui-sortable' );
             wp_enqueue_script( 'hpc-admin', HPC_PLUGIN_URL . 'assets/js/admin.js', array( 'jquery', 'jquery-ui-sortable', 'wp-util' ), HPC_VERSION, true );
 
-            // Current product's cost fields (the client's own custom fields),
-            // so the live Cost Summary is accurate even though the plugin no
-            // longer renders its own inputs for them.
+            // Current product's effective cost fields (plugin override, else
+            // the client's own custom fields), as a baseline for the live Cost
+            // Summary when their inputs aren't being edited on the page.
             $post_id = 0;
             if ( isset( $_GET['post'] ) ) {
                 $post_id = absint( $_GET['post'] );

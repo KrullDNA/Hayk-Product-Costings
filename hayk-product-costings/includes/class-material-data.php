@@ -21,9 +21,11 @@ if ( ! defined( 'ABSPATH' ) ) {
 
 class HPC_Material_Data {
 
-    const META_TIERS   = '_hpc_price_tiers';
-    const META_UNIT    = '_hpc_unit';
-    const META_WASTAGE = '_hpc_wastage_pct';
+    const META_TIERS         = '_hpc_price_tiers';
+    const META_UNIT          = '_hpc_unit';
+    const META_WASTAGE       = '_hpc_wastage_pct';
+    const META_AREA_PER_UNIT = '_hpc_area_per_unit';
+    const META_AREA_UNIT     = '_hpc_area_unit';
 
     /**
      * The built-in default purchase-unit definitions.
@@ -160,6 +162,53 @@ class HPC_Material_Data {
     public static function get_wastage( $post_id ) {
         $w = get_post_meta( $post_id, self::META_WASTAGE, true );
         return ( '' !== $w && null !== $w ) ? max( 0, floatval( $w ) ) : 0;
+    }
+
+    /**
+     * Area covered by one purchase unit (e.g. average m² per skin).
+     *
+     * When set (> 0) the material is in "area mode": it is bought by the
+     * purchase unit (skins, packs …) but consumed by area. The product's
+     * Qty per pair is then a net area, and costing converts area → purchase
+     * units. When 0 the material is costed directly in its purchase unit.
+     *
+     * @param int $post_id Material post ID.
+     * @return float 0 when not set.
+     */
+    public static function get_area_per_unit( $post_id ) {
+        $a = get_post_meta( $post_id, self::META_AREA_PER_UNIT, true );
+        return ( '' !== $a && null !== $a ) ? max( 0, floatval( $a ) ) : 0;
+    }
+
+    /**
+     * The area unit used for area-mode materials (m², sq ft, dm²).
+     *
+     * @param int $post_id Material post ID.
+     * @return string Defaults to 'm²'.
+     */
+    public static function get_area_unit( $post_id ) {
+        $u = get_post_meta( $post_id, self::META_AREA_UNIT, true );
+        $u = is_string( $u ) ? trim( $u ) : '';
+        return '' !== $u ? $u : 'm²';
+    }
+
+    /**
+     * Whether a material is costed by area (bought per unit, consumed by area).
+     *
+     * @param int $post_id Material post ID.
+     * @return bool
+     */
+    public static function is_area_mode( $post_id ) {
+        return self::get_area_per_unit( $post_id ) > 0;
+    }
+
+    /**
+     * The area units offered in the Bulk Pricing dropdown.
+     *
+     * @return string[]
+     */
+    public static function area_unit_options() {
+        return apply_filters( 'hpc_area_unit_options', array( 'm²', 'sq ft', 'dm²' ) );
     }
 
     /**

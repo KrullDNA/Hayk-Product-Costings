@@ -79,30 +79,29 @@ class HPC_Settings {
     }
 
     /**
-     * Parse the units textarea into structured definitions.
+     * Sanitise the units repeater into structured definitions.
      *
-     * One unit per line, format:  singular | plural | units_per
-     * (plural and units_per optional; units_per defaults to 1).
+     * Accepts the repeater's array of rows ( each with singular / plural /
+     * units_per keys ). A row with an empty singular is dropped; plural
+     * defaults to the singular; units_per defaults to 1.
      */
     public static function sanitize_units( $value ) {
-        if ( is_string( $value ) ) {
-            $value = preg_split( '/\r\n|\r|\n/', $value );
-        }
         if ( ! is_array( $value ) ) {
             return HPC_Material_Data::default_unit_defs();
         }
 
-        $defs  = array();
-        $seen  = array();
-        foreach ( $value as $line ) {
-            $line = trim( sanitize_text_field( $line ) );
-            if ( '' === $line ) {
+        $defs = array();
+        $seen = array();
+        foreach ( $value as $row ) {
+            if ( ! is_array( $row ) ) {
                 continue;
             }
-            $parts    = array_map( 'trim', explode( '|', $line ) );
-            $singular = $parts[0];
-            $plural   = ( isset( $parts[1] ) && '' !== $parts[1] ) ? $parts[1] : $singular;
-            $units    = ( isset( $parts[2] ) && '' !== $parts[2] ) ? max( 1, floatval( $parts[2] ) ) : 1;
+            $singular = isset( $row['singular'] ) ? trim( sanitize_text_field( $row['singular'] ) ) : '';
+            if ( '' === $singular ) {
+                continue;
+            }
+            $plural = isset( $row['plural'] ) && '' !== trim( $row['plural'] ) ? trim( sanitize_text_field( $row['plural'] ) ) : $singular;
+            $units  = isset( $row['units_per'] ) && '' !== $row['units_per'] ? max( 1, floatval( $row['units_per'] ) ) : 1;
 
             $key = strtolower( $plural );
             if ( isset( $seen[ $key ] ) ) {
@@ -137,25 +136,64 @@ class HPC_Settings {
                         </td>
                     </tr>
                     <tr>
-                        <th scope="row"><label for="hpc-units"><?php esc_html_e( 'Purchase Units', 'hayk-product-costings' ); ?></label></th>
+                        <th scope="row"><?php esc_html_e( 'Purchase Units', 'hayk-product-costings' ); ?></th>
                         <td>
-                            <?php
-                            $lines = array();
-                            foreach ( HPC_Material_Data::unit_defs() as $d ) {
-                                $lines[] = $d['singular'] . ' | ' . $d['plural'] . ' | ' . rtrim( rtrim( number_format( $d['units_per'], 4 ), '0' ), '.' );
-                            }
-                            ?>
-                            <textarea id="hpc-units" name="<?php echo esc_attr( self::OPTION_UNITS ); ?>" rows="10" class="large-text code"><?php echo esc_textarea( implode( "\n", $lines ) ); ?></textarea>
-                            <p class="description">
-                                <?php esc_html_e( 'One unit per line, in the format:  singular | plural | units per', 'hayk-product-costings' ); ?><br>
-                                <?php esc_html_e( 'These populate the Unit dropdown in each material\'s Bulk Pricing box. "units per" is how many individual units make up one purchase unit — e.g. "pair | pairs | 2" means 1 pair = 2 units (shown next to quantities). Plural and units per are optional (default plural = singular, units per = 1). Add or remove lines to manage the list.', 'hayk-product-costings' ); ?>
+                            <p class="description" style="margin-bottom:8px;">
+                                <?php esc_html_e( 'These populate the Unit dropdown in each material\'s Bulk Pricing box. "Units per" is how many individual units make up one purchase unit — e.g. a pair = 2 units (shown next to quantities).', 'hayk-product-costings' ); ?>
                             </p>
+                            <table class="widefat striped" id="hpc-units-table" style="max-width:560px;">
+                                <thead>
+                                    <tr>
+                                        <th style="width:24px;">&nbsp;</th>
+                                        <th><?php esc_html_e( 'Singular', 'hayk-product-costings' ); ?></th>
+                                        <th><?php esc_html_e( 'Plural', 'hayk-product-costings' ); ?></th>
+                                        <th style="width:100px;"><?php esc_html_e( 'Units per', 'hayk-product-costings' ); ?></th>
+                                        <th style="width:40px;">&nbsp;</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="hpc-units-body">
+                                    <?php foreach ( HPC_Material_Data::unit_defs() as $i => $d ) : ?>
+                                        <tr>
+                                            <td class="hpc-unit-drag" style="cursor:move;text-align:center;color:#888;">&#9776;</td>
+                                            <td><input type="text" name="<?php echo esc_attr( self::OPTION_UNITS ); ?>[<?php echo (int) $i; ?>][singular]" value="<?php echo esc_attr( $d['singular'] ); ?>" class="widefat" placeholder="skin"></td>
+                                            <td><input type="text" name="<?php echo esc_attr( self::OPTION_UNITS ); ?>[<?php echo (int) $i; ?>][plural]" value="<?php echo esc_attr( $d['plural'] ); ?>" class="widefat" placeholder="skins"></td>
+                                            <td><input type="number" step="any" min="1" name="<?php echo esc_attr( self::OPTION_UNITS ); ?>[<?php echo (int) $i; ?>][units_per]" value="<?php echo esc_attr( rtrim( rtrim( number_format( $d['units_per'], 4 ), '0' ), '.' ) ); ?>" class="widefat" placeholder="1"></td>
+                                            <td><button type="button" class="button hpc-unit-remove">&times;</button></td>
+                                        </tr>
+                                    <?php endforeach; ?>
+                                </tbody>
+                            </table>
+                            <p><button type="button" class="button" id="hpc-unit-add"><?php esc_html_e( '+ Add Unit', 'hayk-product-costings' ); ?></button></p>
                         </td>
                     </tr>
                 </table>
                 <?php submit_button(); ?>
             </form>
         </div>
+
+        <script>
+        jQuery(function ($) {
+            var optName = <?php echo wp_json_encode( self::OPTION_UNITS ); ?>;
+            function rowMarkup(i) {
+                return '<tr>' +
+                    '<td class="hpc-unit-drag" style="cursor:move;text-align:center;color:#888;">&#9776;</td>' +
+                    '<td><input type="text" name="' + optName + '[' + i + '][singular]" class="widefat" placeholder="skin"></td>' +
+                    '<td><input type="text" name="' + optName + '[' + i + '][plural]" class="widefat" placeholder="skins"></td>' +
+                    '<td><input type="number" step="any" min="1" name="' + optName + '[' + i + '][units_per]" class="widefat" placeholder="1"></td>' +
+                    '<td><button type="button" class="button hpc-unit-remove">&times;</button></td>' +
+                    '</tr>';
+            }
+            $('#hpc-unit-add').on('click', function () {
+                $('#hpc-units-body').append(rowMarkup($('#hpc-units-body tr').length));
+            });
+            $('#hpc-units-table').on('click', '.hpc-unit-remove', function () {
+                $(this).closest('tr').remove();
+            });
+            if ($.fn.sortable) {
+                $('#hpc-units-body').sortable({ handle: '.hpc-unit-drag', axis: 'y', opacity: 0.7 });
+            }
+        });
+        </script>
         <?php
     }
 }

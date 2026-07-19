@@ -238,9 +238,9 @@ class HPC_Widget_Materials_Table extends \Elementor\Widget_Base {
                 <tbody>
                     <?php foreach ( $lines as $line ) : ?>
                         <?php
-                        $unit         = $line['unit'];
-                        $moq_display  = HPC_Material_Data::format_qty_unit( $line['moq'], $unit );
-                        $qty_display  = HPC_Material_Data::format_qty_unit( $line['qty_per_pair'], $unit );
+                        $qty_unit     = ! empty( $line['qty_unit'] ) ? $line['qty_unit'] : $line['unit'];
+                        $moq_display  = HPC_Material_Data::format_qty_unit( $line['moq'], $line['unit'] );
+                        $qty_display  = HPC_Material_Data::format_qty_unit( $line['qty_per_pair'], $qty_unit );
                         $mat_link     = get_permalink( $line['material_id'] );
                         ?>
                         <tr>

@@ -103,10 +103,12 @@ class HPC_Ajax_Handler {
         $base_cost = HPC_Material_Data::get_base_cost( $post_id );
 
         wp_send_json_success( array(
-            'title'        => get_the_title( $post_id ),
-            'unit'         => HPC_Material_Data::get_unit( $post_id ),
-            'wastage'      => HPC_Material_Data::get_wastage( $post_id ),
-            'tiers'        => HPC_Material_Data::get_price_tiers( $post_id ),
+            'title'         => get_the_title( $post_id ),
+            'unit'          => HPC_Material_Data::get_unit( $post_id ),
+            'wastage'       => HPC_Material_Data::get_wastage( $post_id ),
+            'area_per_unit' => HPC_Material_Data::get_area_per_unit( $post_id ),
+            'area_unit'     => HPC_Material_Data::get_area_unit( $post_id ),
+            'tiers'         => HPC_Material_Data::get_price_tiers( $post_id ),
             'base_moq'     => ( null !== $base_moq ) ? $base_moq : '',
             'base_cost'    => ( null !== $base_cost ) ? $base_cost : '',
             'image'        => HPC_Material_Data::get_image_url( $post_id ),

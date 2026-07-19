@@ -29,12 +29,14 @@ class HPC_Costing_Calculator {
      * checked as a fallback when the managed field is empty (so existing
      * JetEngine / ACF fields still feed the calculation).
      */
+    // Plugin-managed override key (_hpc_*) is checked first; if empty, the
+    // client's own custom fields are used.
     private static $product_field_map = array(
-        'production_run'          => array( 'production_run', '_production_run', '_hpc_production_run', 'production-run' ),
-        'packaging_cost_per_pair' => array( 'packaging_unit_cost', '_packaging_unit_cost', '_hpc_packaging_cost_per_pair', 'packaging_cost_per_pair', '_packaging_cost_per_pair', 'packaging_cost', '_packaging_cost' ),
-        'labour'                  => array( 'labour_costs', '_labour_costs', '_hpc_labour', 'labour', '_labour' ),
-        'facility_running_costs'  => array( 'facility_running_costs', '_facility_running_costs', '_hpc_facility_running_costs', 'facility_costs', '_facility_costs' ),
-        'miscellaneous_costs'     => array( 'miscellaneous_cost', '_miscellaneous_cost', '_hpc_miscellaneous_costs', 'miscellaneous_costs', '_miscellaneous_costs', 'misc_costs', '_misc_costs' ),
+        'production_run'          => array( '_hpc_production_run', 'production_run', '_production_run', 'production-run' ),
+        'packaging_cost_per_pair' => array( '_hpc_packaging_cost_per_pair', 'packaging_unit_cost', '_packaging_unit_cost', 'packaging_cost_per_pair', '_packaging_cost_per_pair', 'packaging_cost', '_packaging_cost' ),
+        'labour'                  => array( '_hpc_labour', 'labour_costs', '_labour_costs', 'labour', '_labour' ),
+        'facility_running_costs'  => array( '_hpc_facility_running_costs', 'facility_running_costs', '_facility_running_costs', 'facility_costs', '_facility_costs' ),
+        'miscellaneous_costs'     => array( '_hpc_miscellaneous_costs', 'miscellaneous_cost', '_miscellaneous_cost', 'miscellaneous_costs', '_miscellaneous_costs', 'misc_costs', '_misc_costs' ),
     );
 
     /**
@@ -95,22 +97,62 @@ class HPC_Costing_Calculator {
                 continue;
             }
 
-            $unit    = HPC_Material_Data::get_unit( $material_id );
-            $wastage = HPC_Material_Data::get_wastage( $material_id );
-
-            // Effective consumption per pair including the cutting/wastage allowance.
+            $unit        = HPC_Material_Data::get_unit( $material_id );
+            $wastage     = HPC_Material_Data::get_wastage( $material_id );
+            $area_per    = HPC_Material_Data::get_area_per_unit( $material_id );
+            $area_mode   = ( $area_per > 0 );
+            $area_unit   = HPC_Material_Data::get_area_unit( $material_id );
             $waste_factor = 1 + ( $wastage / 100 );
-            $eff_per_pair = $qty_per_pair * $waste_factor;
 
-            // Tier selection uses the gross (wastage-included) quantity needed.
-            $qty_needed = $eff_per_pair * max( 0, $run );
-            $tier       = HPC_Material_Data::get_applicable_tier( $material_id, $qty_needed );
+            if ( $area_mode ) {
+                // Bought per unit (skins/packs), consumed by area. Qty per pair
+                // is a net area in $area_unit. Convert gross area → purchase units.
+                $gross_area          = $qty_per_pair * $waste_factor;             // area per pair incl. wastage
+                $units_per_pair      = $gross_area / $area_per;                    // e.g. skins per pair
+                $qty_needed          = $units_per_pair * max( 0, $run );           // purchase units for the run
+                $tier                = HPC_Material_Data::get_applicable_tier( $material_id, $qty_needed );
+
+                $cost_per_moq = $tier ? $tier['cost'] : 0;
+                $moq          = $tier ? $tier['qty'] : 0;
+                $rate         = $tier ? $tier['rate'] : 0; // cost per purchase unit (e.g. per skin)
+
+                $margin_applied = ( $tier && ! empty( $tier['apply_margin'] ) && $margin_pct > 0 );
+                if ( $margin_applied ) {
+                    $rate = $rate * ( 1 + $margin_pct / 100 );
+                }
+
+                $cost_per_pair = $units_per_pair * $rate;
+                $units_per_run = $units_per_pair * max( 0, $run );
+
+                $lines[] = array(
+                    'material_id'    => $material_id,
+                    'material_type'  => $type,
+                    'title'          => get_the_title( $material_id ),
+                    'area_mode'      => true,
+                    'unit'           => $unit,          // purchase unit (skins) — for the MOQ column
+                    'qty_unit'       => $area_unit,     // area unit (m²) — for the Qty per pair column
+                    'area_per_unit'  => $area_per,
+                    'wastage'        => $wastage,
+                    'margin_applied' => $margin_applied,
+                    'image'          => HPC_Material_Data::get_image_url( $material_id ),
+                    'cost_per_moq'   => $cost_per_moq,
+                    'moq'            => $moq,
+                    'qty_per_pair'   => $qty_per_pair,  // net area
+                    'cost_per_pair'  => $cost_per_pair,
+                    'units_per_run'  => ceil( $units_per_run - 1e-9 ), // whole units to buy
+                );
+                continue;
+            }
+
+            // Direct mode: consumed and priced in the same purchase unit.
+            $eff_per_pair = $qty_per_pair * $waste_factor;
+            $qty_needed   = $eff_per_pair * max( 0, $run );
+            $tier         = HPC_Material_Data::get_applicable_tier( $material_id, $qty_needed );
 
             $cost_per_moq = $tier ? $tier['cost'] : 0;
             $moq          = $tier ? $tier['qty'] : 0;
             $rate         = $tier ? $tier['rate'] : 0;
 
-            // Optional cost uplift (buffer) on rows flagged "apply margin".
             $margin_applied = ( $tier && ! empty( $tier['apply_margin'] ) && $margin_pct > 0 );
             if ( $margin_applied ) {
                 $rate = $rate * ( 1 + $margin_pct / 100 );
@@ -122,7 +164,10 @@ class HPC_Costing_Calculator {
                 'material_id'    => $material_id,
                 'material_type'  => $type,
                 'title'          => get_the_title( $material_id ),
+                'area_mode'      => false,
                 'unit'           => $unit,
+                'qty_unit'       => $unit,
+                'area_per_unit'  => 0,
                 'wastage'        => $wastage,
                 'margin_applied' => $margin_applied,
                 'image'          => HPC_Material_Data::get_image_url( $material_id ),
@@ -130,6 +175,7 @@ class HPC_Costing_Calculator {
                 'moq'            => $moq,
                 'qty_per_pair'   => $qty_per_pair,
                 'cost_per_pair'  => $cost_per_pair,
+                'units_per_run'  => 0,
             );
         }
         return $lines;
