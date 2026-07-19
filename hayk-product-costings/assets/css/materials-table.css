@@ -1,0 +1,63 @@
+/* Hayk Product Costings — front-end Materials Table */
+
+.hpc-mt-wrapper {
+    width: 100%;
+    overflow-x: auto;
+    background: #fff;
+}
+
+.hpc-mt {
+    width: 100%;
+    border-collapse: collapse;
+    background: #fff;
+    font-size: 15px;
+}
+
+.hpc-mt thead th {
+    background: #000;
+    color: #fff;
+    font-weight: 700;
+    text-align: center;
+    padding: 16px;
+    white-space: nowrap;
+}
+
+.hpc-mt thead th.hpc-mt-col-material,
+.hpc-mt thead th.hpc-mt-col-type {
+    text-align: left;
+}
+
+.hpc-mt tbody td {
+    padding: 18px 16px;
+    text-align: center;
+    border-bottom: 1px solid #e5e5e5;
+    vertical-align: middle;
+}
+
+.hpc-mt tbody tr:last-child td {
+    border-bottom: none;
+}
+
+.hpc-mt-type { text-align: left; }
+.hpc-mt-material { text-align: left; }
+
+.hpc-mt-material a {
+    color: inherit;
+    text-decoration: none;
+}
+.hpc-mt-material a:hover { text-decoration: underline; }
+
+.hpc-mt-image img {
+    width: 90px;
+    height: 90px;
+    object-fit: cover;
+    border-radius: 6px;
+    display: inline-block;
+}
+
+.hpc-mt-empty {
+    padding: 20px;
+    text-align: center;
+    color: #777;
+    font-style: italic;
+}

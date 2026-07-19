@@ -1,0 +1,43 @@
+/* Hayk Product Costings — front-end Cost Metrics */
+
+.hpc-cm {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.hpc-cm-inline {
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-items: center;
+}
+
+.hpc-cm-item {
+    background: #000;
+    color: #fff;
+    padding: 14px 22px;
+    border-radius: 30px;
+    display: inline-flex;
+    align-items: baseline;
+    gap: 6px;
+}
+
+.hpc-cm-stack .hpc-cm-item {
+    width: 100%;
+    justify-content: flex-start;
+}
+
+.hpc-cm-label {
+    color: #fff;
+    font-weight: 500;
+}
+
+.hpc-cm-value {
+    color: #fff;
+    font-weight: 700;
+}
+
+.hpc-cm-prefix {
+    font-weight: 400;
+    opacity: 0.8;
+}
