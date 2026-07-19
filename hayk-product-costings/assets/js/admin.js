@@ -187,8 +187,7 @@
                     if (res.success && res.data) {
                         $row.attr('data-unit', res.data.unit || '');
                         $row.attr('data-wastage', res.data.wastage || 0);
-                        $row.attr('data-area-per-unit', res.data.area_per_unit || 0);
-                        $row.attr('data-area-unit', res.data.area_unit || '');
+                        $row.attr('data-m2factor', res.data.m2_factor || 0);
                         $row.attr('data-tiers', JSON.stringify(res.data.tiers || []));
                         HPC.recalc();
                     }
@@ -316,34 +315,31 @@
                 try { tiers = JSON.parse($row.attr('data-tiers') || '[]'); } catch (e) { tiers = []; }
                 var unit = $row.attr('data-unit') || '';
                 var wastage = parseFloat($row.attr('data-wastage')) || 0;
-                var areaPer = parseFloat($row.attr('data-area-per-unit')) || 0;
-                var areaUnit = $row.attr('data-area-unit') || '';
+                var m2factor = parseFloat($row.attr('data-m2factor')) || 0;
                 var qty  = parseFloat($row.find('.hpc-field-qty').val()) || 0;
                 var wasteFactor = 1 + wastage / 100;
 
                 var costPair = 0, tier;
 
-                if (areaPer > 0) {
-                    // Area mode: bought per unit (skins), consumed by area.
-                    var grossArea = qty * wasteFactor;
-                    var unitsPerPair = grossArea / areaPer;
-                    var singular = self.unitInfo(unit).singular;
-                    // Qty hint: area unit + the fraction of a skin used per pair.
-                    $row.find('.hpc-qty-unit').html(areaUnit + (qty > 0 ? ' &middot; ≈ ' + self.fmtNum(Math.round(unitsPerPair * 1000) / 1000) + ' ' + singular + '/pair' : ''));
-                    tier = self.applicableTier(tiers, unitsPerPair * run);
+                if (m2factor > 0) {
+                    // Area-priced: supplier sells by m²/ft², usage is in m².
+                    var grossM2 = qty * wasteFactor;
+                    var m2Run = grossM2 * run;
+                    var unitsNeeded = m2Run / m2factor; // in supplier unit (e.g. ft²)
+                    // Qty hint: usage is always m² (+ per-m² note when not m²).
+                    $row.find('.hpc-qty-unit').text('m²');
+                    tier = self.applicableTier(tiers, unitsNeeded);
                     if (tier) {
-                        var rateA = tier.rate;
-                        if (tier.apply_margin && margin > 0) { rateA = rateA * (1 + margin / 100); }
+                        var rateU = tier.rate;
+                        if (tier.apply_margin && margin > 0) { rateU = rateU * (1 + margin / 100); }
+                        var rateM2 = rateU / m2factor;
                         $row.find('.hpc-field-costmoq').val(cur + tier.cost.toFixed(2));
                         $row.find('.hpc-field-moq').val(self.fmtQtyUnit(tier.qty, unit));
-                        costPair = unitsPerPair * rateA;
-                        var grossRun = grossArea * run;
-                        var unitsRun = Math.ceil(unitsPerPair * run - 1e-9);
-                        if (unitsRun > 0) {
+                        costPair = grossM2 * rateM2;
+                        if (unitsNeeded > 0) {
                             purchasing.push({
                                 title: $row.find('.hpc-field-material option:selected').text(),
-                                qty: unitsRun, unit: unit,
-                                area: grossRun, spare: Math.max(0, unitsRun * areaPer - grossRun), areaUnit: areaUnit
+                                area: m2Run, buy: unitsNeeded, unit: unit
                             });
                         }
                     }
@@ -372,12 +368,10 @@
             if ($purch.length) {
                 if (purchasing.length) {
                     var rows = purchasing.map(function (p) {
-                        var buyLabel = self.fmtNum(p.qty) + ' ' + self.unitInfo(p.unit)[p.qty === 1 ? 'singular' : 'plural'];
                         return '<tr>' +
                             '<td>' + $('<span>').text(p.title).html() + '</td>' +
-                            '<td>' + self.fmtNum(Math.round(p.area * 10000) / 10000) + ' ' + p.areaUnit + '</td>' +
-                            '<td><strong>' + buyLabel + '</strong></td>' +
-                            '<td>' + self.fmtNum(Math.round(p.spare * 10000) / 10000) + ' ' + p.areaUnit + '</td>' +
+                            '<td>' + self.fmtNum(Math.round(p.area * 10000) / 10000) + ' m²</td>' +
+                            '<td><strong>' + self.fmtNum(Math.round(p.buy * 10000) / 10000) + ' ' + p.unit + '</strong></td>' +
                             '</tr>';
                     }).join('');
                     $('#hpc-purchasing-body').html(rows);

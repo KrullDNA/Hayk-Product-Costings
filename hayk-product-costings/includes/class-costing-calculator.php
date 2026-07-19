@@ -97,55 +97,54 @@ class HPC_Costing_Calculator {
                 continue;
             }
 
-            $unit        = HPC_Material_Data::get_unit( $material_id );
-            $wastage     = HPC_Material_Data::get_wastage( $material_id );
-            $area_per    = HPC_Material_Data::get_area_per_unit( $material_id );
-            $area_mode   = ( $area_per > 0 );
-            $area_unit   = HPC_Material_Data::get_area_unit( $material_id );
+            $unit         = HPC_Material_Data::get_unit( $material_id );
+            $wastage      = HPC_Material_Data::get_wastage( $material_id );
+            $m2_factor    = HPC_Material_Data::unit_m2_factor( $unit ); // >0 => area-priced (m²/ft²)
+            $area_mode    = ( $m2_factor > 0 );
             $waste_factor = 1 + ( $wastage / 100 );
 
             if ( $area_mode ) {
-                // Bought per unit (skins/packs), consumed by area. Qty per pair
-                // is a net area in $area_unit. Convert gross area → purchase units.
-                $gross_area          = $qty_per_pair * $waste_factor;             // area per pair incl. wastage
-                $units_per_pair      = $gross_area / $area_per;                    // e.g. skins per pair
-                $qty_needed          = $units_per_pair * max( 0, $run );           // purchase units for the run
-                $tier                = HPC_Material_Data::get_applicable_tier( $material_id, $qty_needed );
+                // Supplier prices by area (m²/ft²); leather usage is entered in
+                // m². Qty per pair is net m². The supplier-unit rate is
+                // converted to a per-m² rate by dividing by the unit's m² factor
+                // (ft² factor 0.092903 → per-m² rate = per-ft² rate × 10.7639).
+                $gross_m2   = $qty_per_pair * $waste_factor;              // m² per pair incl. wastage
+                $m2_run     = $gross_m2 * max( 0, $run );                 // total m² for the run
+                $units_run  = ( $m2_factor > 0 ) ? $m2_run / $m2_factor : 0; // in the supplier unit (e.g. ft²)
+
+                // Applicable tier by the quantity needed in the supplier unit.
+                $tier = HPC_Material_Data::get_applicable_tier( $material_id, $units_run );
 
                 $cost_per_moq = $tier ? $tier['cost'] : 0;
                 $moq          = $tier ? $tier['qty'] : 0;
-                $rate         = $tier ? $tier['rate'] : 0; // cost per purchase unit (e.g. per skin)
+                $rate_unit    = $tier ? $tier['rate'] : 0;               // cost per supplier unit (per ft²)
 
                 $margin_applied = ( $tier && ! empty( $tier['apply_margin'] ) && $margin_pct > 0 );
                 if ( $margin_applied ) {
-                    $rate = $rate * ( 1 + $margin_pct / 100 );
+                    $rate_unit = $rate_unit * ( 1 + $margin_pct / 100 );
                 }
 
-                $cost_per_pair  = $units_per_pair * $rate;
-                $gross_run_area = $gross_area * max( 0, $run );          // total area for the run
-                $units_run_raw  = $units_per_pair * max( 0, $run );      // fractional units for the run
-                $units_per_run  = ( $units_run_raw > 0 ) ? (int) ceil( $units_run_raw - 1e-9 ) : 0; // whole units to buy
-                $spare_area     = ( $units_per_run * $area_per ) - $gross_run_area; // offcut on the last unit
+                $rate_m2       = $m2_factor > 0 ? $rate_unit / $m2_factor : 0; // cost per m²
+                $cost_per_pair = $gross_m2 * $rate_m2;
 
                 $lines[] = array(
                     'material_id'    => $material_id,
                     'material_type'  => $type,
                     'title'          => get_the_title( $material_id ),
                     'area_mode'      => true,
-                    'unit'           => $unit,          // purchase unit (skins) — for the MOQ column
-                    'qty_unit'       => $area_unit,     // area unit (m²) — for the Qty per pair column
-                    'area_per_unit'  => $area_per,
+                    'unit'           => $unit,          // supplier area unit (m²/ft²) — MOQ column
+                    'qty_unit'       => 'm²',           // usage is always in m²
+                    'm2_factor'      => $m2_factor,
+                    'rate_m2'        => $rate_m2,
                     'wastage'        => $wastage,
                     'margin_applied' => $margin_applied,
                     'image'          => HPC_Material_Data::get_image_url( $material_id ),
                     'cost_per_moq'   => $cost_per_moq,
                     'moq'            => $moq,
-                    'qty_per_pair'   => $qty_per_pair,  // net area
+                    'qty_per_pair'   => $qty_per_pair,  // net m²
                     'cost_per_pair'  => $cost_per_pair,
-                    'units_per_pair' => $units_per_pair, // fraction of a skin used per pair
-                    'gross_run_area' => $gross_run_area,
-                    'units_per_run'  => $units_per_run,
-                    'spare_area'     => max( 0, $spare_area ),
+                    'gross_run_area' => $m2_run,        // m² needed for the run
+                    'units_per_run'  => $units_run,     // area to buy in the supplier unit
                 );
                 continue;
             }
@@ -173,7 +172,7 @@ class HPC_Costing_Calculator {
                 'area_mode'      => false,
                 'unit'           => $unit,
                 'qty_unit'       => $unit,
-                'area_per_unit'  => 0,
+                'm2_factor'      => 0,
                 'wastage'        => $wastage,
                 'margin_applied' => $margin_applied,
                 'image'          => HPC_Material_Data::get_image_url( $material_id ),

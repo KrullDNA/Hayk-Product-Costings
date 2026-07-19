@@ -242,12 +242,6 @@ class HPC_Widget_Materials_Table extends \Elementor\Widget_Base {
                         $moq_display  = HPC_Material_Data::format_qty_unit( $line['moq'], $line['unit'] );
                         $qty_display  = HPC_Material_Data::format_qty_unit( $line['qty_per_pair'], $qty_unit );
                         $mat_link     = get_permalink( $line['material_id'] );
-                        // In area mode, show the fraction of a purchase unit (e.g. skin) used per pair.
-                        $skin_hint = '';
-                        if ( ! empty( $line['area_mode'] ) && ! empty( $line['units_per_pair'] ) ) {
-                            $frac      = rtrim( rtrim( number_format( $line['units_per_pair'], 3 ), '0' ), '.' );
-                            $skin_hint = '≈ ' . $frac . ' ' . HPC_Material_Data::unit_info( $line['unit'] )['singular'] . '/pair';
-                        }
                         ?>
                         <tr>
                             <td class="hpc-mt-type"><?php echo esc_html( $line['material_type'] ); ?></td>
@@ -269,7 +263,7 @@ class HPC_Widget_Materials_Table extends \Elementor\Widget_Base {
                             </td>
                             <td class="hpc-mt-costmoq"><strong><?php echo esc_html( $currency . number_format( $line['cost_per_moq'], 2 ) ); ?></strong></td>
                             <td class="hpc-mt-moq"><?php echo esc_html( $moq_display ); ?></td>
-                            <td class="hpc-mt-qty"><?php echo esc_html( $qty_display ); ?><?php if ( $skin_hint ) : ?><span class="hpc-mt-skinhint"><?php echo esc_html( $skin_hint ); ?></span><?php endif; ?></td>
+                            <td class="hpc-mt-qty"><?php echo esc_html( $qty_display ); ?></td>
                             <td class="hpc-mt-costpair"><strong><?php echo esc_html( $currency . number_format( $line['cost_per_pair'], 2 ) ); ?></strong></td>
                         </tr>
                     <?php endforeach; ?>

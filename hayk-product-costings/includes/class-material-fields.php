@@ -52,15 +52,19 @@ class HPC_Material_Fields {
     public function render_pricing_metabox( $post ) {
         wp_nonce_field( 'hpc_save_material_fields', 'hpc_material_fields_nonce' );
 
-        $tiers     = HPC_Material_Data::get_price_tiers_raw( $post->ID );
-        $unit      = HPC_Material_Data::get_unit( $post->ID );
-        $wastage   = get_post_meta( $post->ID, HPC_Material_Data::META_WASTAGE, true );
-        $area_per  = get_post_meta( $post->ID, HPC_Material_Data::META_AREA_PER_UNIT, true );
-        $area_unit = HPC_Material_Data::get_area_unit( $post->ID );
-        $currency  = HPC_Settings::currency();
-        $margin    = HPC_Settings::leather_margin_pct();
-        $units     = HPC_Material_Data::unit_options();
-        $area_units = HPC_Material_Data::area_unit_options();
+        $tiers    = HPC_Material_Data::get_price_tiers_raw( $post->ID );
+        $unit     = HPC_Material_Data::get_unit( $post->ID );
+        $wastage  = get_post_meta( $post->ID, HPC_Material_Data::META_WASTAGE, true );
+        $currency = HPC_Settings::currency();
+        $margin   = HPC_Settings::leather_margin_pct();
+        $units    = HPC_Material_Data::unit_options();
+
+        // m²-per-unit lookup for every dropdown unit, so the live preview can
+        // convert a ft² (or other area) rate to a per-m² rate.
+        $unit_m2 = array();
+        foreach ( $units as $u ) {
+            $unit_m2[ $u ] = HPC_Material_Data::unit_m2_factor( $u );
+        }
         ?>
         <p class="description">
             <?php esc_html_e( 'Supplier pricing for this material. Choose the purchase Unit (how the material is bought and measured — skins, pairs, pieces, packs, m², etc.) then add one row per quantity break. Each row is a Minimum Order Quantity (MOQ) and the total Cost to buy that quantity. The per-unit rate (Cost ÷ MOQ) is shown live and is what the product Materials table uses to work out cost per pair. Add more rows for volume discounts — the smallest MOQ is the base rate; a larger row is used automatically once a production run needs at least that many units.', 'hayk-product-costings' ); ?>
@@ -92,22 +96,10 @@ class HPC_Material_Fields {
                 <strong><?php esc_html_e( 'Wastage %', 'hayk-product-costings' ); ?></strong>
                 <input type="number" step="any" min="0" id="hpc-wastage" name="hpc_wastage_pct" value="<?php echo esc_attr( $wastage ); ?>" style="width:90px;" placeholder="0">%
             </label>
-            <span class="description"><?php esc_html_e( 'Cutting / consumption allowance for irregular skins (e.g. 20 for 20%). The cost per pair is worked out on the net Qty per pair × (1 + wastage %). Leave 0 for non-leather materials.', 'hayk-product-costings' ); ?></span>
+            <span class="description"><?php esc_html_e( 'Cutting / consumption allowance for irregular leather (e.g. 20 for 20%). The cost per pair is worked out on the net Qty per pair × (1 + wastage %). Leave 0 for non-leather materials.', 'hayk-product-costings' ); ?></span>
         </p>
-        <p style="padding:10px 12px;background:#f6f7f7;border-left:3px solid #2271b1;max-width:760px;">
-            <strong><?php esc_html_e( 'Leather / area costing (optional)', 'hayk-product-costings' ); ?></strong><br>
-            <label>
-                <?php esc_html_e( 'Average area per', 'hayk-product-costings' ); ?> <span id="hpc-area-unit-label"><?php echo esc_html( rtrim( HPC_Material_Data::get_unit( $post->ID ), 's' ) ); ?></span>:
-                <input type="number" step="any" min="0" id="hpc-area-per-unit" name="hpc_area_per_unit" value="<?php echo esc_attr( $area_per ); ?>" style="width:90px;" placeholder="1.2">
-                <select id="hpc-area-unit" name="hpc_area_unit" style="width:90px;">
-                    <?php foreach ( $area_units as $au ) : ?>
-                        <option value="<?php echo esc_attr( $au ); ?>" <?php selected( $area_unit, $au ); ?>><?php echo esc_html( $au ); ?></option>
-                    <?php endforeach; ?>
-                </select>
-            </label><br>
-            <span class="description">
-                <?php esc_html_e( 'Fill this in to buy by the unit (skins/packs) but cost by area. e.g. "1.2 m²" means one skin yields on average 1.2 m². On the product you then enter the net area per pair (in this area unit) and the tool converts area → skins, works out cost per pair, and reports skins to buy per run. Leave blank/0 to cost directly in the purchase unit above (e.g. price already per m²).', 'hayk-product-costings' ); ?>
-            </span>
+        <p class="description" id="hpc-area-note" style="padding:8px 12px;background:#f6f7f7;border-left:3px solid #2271b1;max-width:760px;display:none;">
+            <?php esc_html_e( 'This is an area unit, so the material is priced by area. Enter the MOQ and cost in this unit (m² or ft²); on the product you enter the leather used per pair in m² and the tool converts automatically (ft² prices are converted to per-m²).', 'hayk-product-costings' ); ?>
         </p>
 
         <table class="widefat striped" id="hpc-price-tier-table" style="max-width:760px;">
@@ -145,6 +137,7 @@ class HPC_Material_Fields {
         jQuery(function ($) {
             var currency = <?php echo wp_json_encode( $currency ); ?>;
             var margin   = <?php echo wp_json_encode( $margin ); ?>;
+            var unitM2   = <?php echo wp_json_encode( $unit_m2 ); ?>;
 
             function rowMarkup(idx) {
                 return '<tr>' +
@@ -160,21 +153,23 @@ class HPC_Material_Fields {
             function refresh() {
                 var unit = $('#hpc-unit').val() || '';
                 var perUnit = unit ? unit.replace(/s$/, '') : '';
-                var areaPer = parseFloat($('#hpc-area-per-unit').val()) || 0;
-                var areaUnit = $('#hpc-area-unit').val() || 'm²';
-                $('#hpc-area-unit-label').text(perUnit);
+                var m2factor = parseFloat(unitM2[unit]) || 0; // >0 => area unit
+                $('#hpc-area-note').toggle(m2factor > 0);
                 $('#hpc-price-tier-body tr').each(function () {
                     var qty  = parseFloat($(this).find('.hpc-tier-qty').val()) || 0;
                     var cost = parseFloat($(this).find('.hpc-tier-cost').val()) || 0;
                     var mrg  = $(this).find('.hpc-tier-margin').is(':checked');
                     var $cell = $(this).find('.hpc-tier-rate');
                     if (qty > 0 && cost > 0) {
-                        var rate = cost / qty;
+                        var rate = cost / qty; // per purchase unit
                         if (mrg && margin > 0) { rate = rate * (1 + margin / 100); }
                         var txt;
-                        if (areaPer > 0) {
-                            // Area mode: show the derived cost per area unit.
-                            txt = currency + (rate / areaPer).toFixed(4) + ' / ' + areaUnit;
+                        if (m2factor > 0) {
+                            // Area unit: show the derived per-m² rate (converts ft² → m²).
+                            txt = currency + (rate / m2factor).toFixed(4) + ' / m²';
+                            if (Math.abs(m2factor - 1) > 1e-9) {
+                                txt = currency + rate.toFixed(4) + ' / ' + perUnit + '  →  ' + txt;
+                            }
                         } else {
                             txt = currency + rate.toFixed(4) + (perUnit ? ' / ' + perUnit : '');
                         }
@@ -195,7 +190,7 @@ class HPC_Material_Fields {
                 refresh();
             });
             $('#hpc-price-tier-table').on('input change', '.hpc-tier-qty, .hpc-tier-cost, .hpc-tier-margin', refresh);
-            $('#hpc-unit, #hpc-area-per-unit, #hpc-area-unit').on('input change', refresh);
+            $('#hpc-unit').on('input change', refresh);
 
             if ($.fn.sortable) {
                 $('#hpc-price-tier-body').sortable({ handle: '.hpc-tier-drag', axis: 'y', opacity: 0.7 });
@@ -279,20 +274,6 @@ class HPC_Material_Fields {
             update_post_meta( $post_id, HPC_Material_Data::META_WASTAGE, $wastage );
         } else {
             delete_post_meta( $post_id, HPC_Material_Data::META_WASTAGE );
-        }
-
-        // Area per unit + area unit (leather/area costing).
-        $area_per = isset( $_POST['hpc_area_per_unit'] ) ? floatval( wp_unslash( $_POST['hpc_area_per_unit'] ) ) : 0;
-        if ( $area_per > 0 ) {
-            update_post_meta( $post_id, HPC_Material_Data::META_AREA_PER_UNIT, $area_per );
-        } else {
-            delete_post_meta( $post_id, HPC_Material_Data::META_AREA_PER_UNIT );
-        }
-        $area_unit = isset( $_POST['hpc_area_unit'] ) ? sanitize_text_field( wp_unslash( $_POST['hpc_area_unit'] ) ) : '';
-        if ( '' !== $area_unit ) {
-            update_post_meta( $post_id, HPC_Material_Data::META_AREA_UNIT, $area_unit );
-        } else {
-            delete_post_meta( $post_id, HPC_Material_Data::META_AREA_UNIT );
         }
 
         // Bulk pricing tiers (MOQ qty + total cost per MOQ + margin flag).
