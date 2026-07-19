@@ -12,6 +12,15 @@
         miscellaneous_costs:     ['miscellaneous_cost']
     };
 
+    // The plugin's own override inputs (Production & Costs metabox).
+    var PLUGIN_INPUTS = {
+        production_run:          '#hpc-production-run',
+        packaging_cost_per_pair: '#hpc-packaging',
+        labour:                  '#hpc-labour',
+        facility_running_costs:  '#hpc-facility',
+        miscellaneous_costs:     '#hpc-misc'
+    };
+
     var HPC = {
         nextIndex: 0,
 
@@ -40,6 +49,16 @@
          * custom field), else the server baseline localized in hpcData.fields.
          */
         field: function (key) {
+            // 1) Plugin override input, when filled in.
+            var plugSel = PLUGIN_INPUTS[key];
+            if (plugSel) {
+                var $plug = $(plugSel);
+                if ($plug.length && $.trim($plug.val()) !== '') {
+                    var pv = parseFloat($plug.val());
+                    if (!isNaN(pv)) return pv;
+                }
+            }
+            // 2) The client's own custom field inputs on the page.
             var names = FIELD_INPUTS[key] || [];
             for (var i = 0; i < names.length; i++) {
                 var $inp = $('[name="' + names[i] + '"], [name="_' + names[i] + '"]').filter('input, select, textarea').first();
@@ -168,6 +187,8 @@
                     if (res.success && res.data) {
                         $row.attr('data-unit', res.data.unit || '');
                         $row.attr('data-wastage', res.data.wastage || 0);
+                        $row.attr('data-area-per-unit', res.data.area_per_unit || 0);
+                        $row.attr('data-area-unit', res.data.area_unit || '');
                         $row.attr('data-tiers', JSON.stringify(res.data.tiers || []));
                         HPC.recalc();
                     }
@@ -211,8 +232,10 @@
                 self.recalc();
             });
 
-            // Recalculate live when the client's custom cost fields change.
+            // Recalculate live when either the plugin override inputs or the
+            // client's custom cost fields change.
             var selectors = [];
+            $.each(PLUGIN_INPUTS, function (_, sel) { selectors.push(sel); });
             $.each(FIELD_INPUTS, function (_, names) {
                 $.each(names, function (_, n) {
                     selectors.push('[name="' + n + '"]');
@@ -285,6 +308,7 @@
             var cur = this.currency();
             var margin = this.margin();
             var materialPerPair = 0;
+            var purchasing = [];
 
             this.$body.find('.hpc-row').each(function () {
                 var $row = $(this);
@@ -292,28 +316,65 @@
                 try { tiers = JSON.parse($row.attr('data-tiers') || '[]'); } catch (e) { tiers = []; }
                 var unit = $row.attr('data-unit') || '';
                 var wastage = parseFloat($row.attr('data-wastage')) || 0;
+                var areaPer = parseFloat($row.attr('data-area-per-unit')) || 0;
+                var areaUnit = $row.attr('data-area-unit') || '';
                 var qty  = parseFloat($row.find('.hpc-field-qty').val()) || 0;
+                var wasteFactor = 1 + wastage / 100;
 
-                var effPerPair = qty * (1 + wastage / 100);
-                var needed = effPerPair * run;
+                // Qty-per-pair unit hint (area unit in area mode, else purchase unit).
+                $row.find('.hpc-qty-unit').text(areaPer > 0 ? areaUnit : self.unitInfo(unit).plural);
 
-                var tier = self.applicableTier(tiers, needed);
-                if (tier) {
-                    var rate = tier.rate;
-                    if (tier.apply_margin && margin > 0) {
-                        rate = rate * (1 + margin / 100);
+                var costPair = 0, tier;
+
+                if (areaPer > 0) {
+                    // Area mode: bought per unit (skins), consumed by area.
+                    var grossArea = qty * wasteFactor;
+                    var unitsPerPair = grossArea / areaPer;
+                    tier = self.applicableTier(tiers, unitsPerPair * run);
+                    if (tier) {
+                        var rateA = tier.rate;
+                        if (tier.apply_margin && margin > 0) { rateA = rateA * (1 + margin / 100); }
+                        $row.find('.hpc-field-costmoq').val(cur + tier.cost.toFixed(2));
+                        $row.find('.hpc-field-moq').val(self.fmtQtyUnit(tier.qty, unit));
+                        costPair = unitsPerPair * rateA;
+                        var unitsRun = Math.ceil(unitsPerPair * run - 1e-9);
+                        if (unitsRun > 0) {
+                            purchasing.push({ title: $row.find('.hpc-field-material option:selected').text(), qty: unitsRun, unit: unit });
+                        }
                     }
-                    $row.find('.hpc-field-costmoq').val(cur + tier.cost.toFixed(2));
-                    $row.find('.hpc-field-moq').val(self.fmtQtyUnit(tier.qty, unit));
-                    var costPair = rate * effPerPair;
-                    materialPerPair += costPair;
-                    $row.find('.hpc-cell-costpair').text(costPair > 0 ? cur + costPair.toFixed(2) : '—');
                 } else {
-                    $row.find('.hpc-cell-costpair').text('—');
+                    // Direct mode.
+                    var effPerPair = qty * wasteFactor;
+                    tier = self.applicableTier(tiers, effPerPair * run);
+                    if (tier) {
+                        var rate = tier.rate;
+                        if (tier.apply_margin && margin > 0) { rate = rate * (1 + margin / 100); }
+                        $row.find('.hpc-field-costmoq').val(cur + tier.cost.toFixed(2));
+                        $row.find('.hpc-field-moq').val(self.fmtQtyUnit(tier.qty, unit));
+                        costPair = rate * effPerPair;
+                    }
                 }
+
+                materialPerPair += costPair;
+                $row.find('.hpc-cell-costpair').text(costPair > 0 ? cur + costPair.toFixed(2) : '—');
             });
 
             $('#hpc-total-costpair').html('<strong>' + cur + materialPerPair.toFixed(2) + '</strong>');
+
+            // Live purchasing list (area-costed materials).
+            var $purch = $('#hpc-purchasing');
+            if ($purch.length) {
+                if (purchasing.length) {
+                    var rows = purchasing.map(function (p) {
+                        return '<tr><td>' + $('<span>').text(p.title).html() + '</td><td>' +
+                            self.fmtNum(p.qty) + ' ' + self.unitInfo(p.unit)[p.qty === 1 ? 'singular' : 'plural'] + '</td></tr>';
+                    }).join('');
+                    $('#hpc-purchasing-body').html(rows);
+                    $purch.show();
+                } else {
+                    $purch.hide();
+                }
+            }
 
             // Summary metrics from the client's cost fields.
             var packaging = this.field('packaging_cost_per_pair');
@@ -334,6 +395,8 @@
             $('#hpc-sum-misc').text(cur + misc.toFixed(2));
             $('#hpc-sum-full').html('<strong>' + cur + full.toFixed(2) + '</strong>');
             $('#hpc-sum-pair').html('<strong>' + cur + perPair.toFixed(2) + '</strong>');
+
+            $('#hpc-packaging-total').text(run > 0 ? '= ' + cur + pkgRun.toFixed(2) + ' for the run' : '');
         }
     };
 

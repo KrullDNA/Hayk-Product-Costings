@@ -37,6 +37,15 @@ class HPC_Product_Metaboxes {
         );
 
         add_meta_box(
+            'hpc_production_costs',
+            __( 'Production & Costs', 'hayk-product-costings' ),
+            array( $this, 'render_production_metabox' ),
+            HPC_PRODUCTS_CPT,
+            'normal',
+            'default'
+        );
+
+        add_meta_box(
             'hpc_cost_summary',
             __( 'Cost Summary', 'hayk-product-costings' ),
             array( $this, 'render_cost_summary_metabox' ),
@@ -106,7 +115,7 @@ class HPC_Product_Metaboxes {
 
         <!-- Row template (hidden) -->
         <script type="text/html" id="tmpl-hpc-row">
-            <tr class="hpc-row" data-index="{{data.i}}" data-unit="" data-tiers="[]">
+            <tr class="hpc-row" data-index="{{data.i}}" data-unit="" data-wastage="0" data-area-per-unit="0" data-area-unit="" data-tiers="[]">
                 <td class="hpc-col-sort hpc-drag-handle">&#9776;</td>
                 <td class="hpc-col-type">
                     <input type="text" name="hpc_rows[{{data.i}}][material_type]" value="" class="hpc-field-type" placeholder="<?php esc_attr_e( 'e.g. Leather', 'hayk-product-costings' ); ?>">
@@ -123,7 +132,7 @@ class HPC_Product_Metaboxes {
                     <input type="text" name="hpc_rows[{{data.i}}][moq]" value="" class="hpc-field-moq" readonly>
                 </td>
                 <td class="hpc-col-qty">
-                    <input type="number" step="any" min="0" name="hpc_rows[{{data.i}}][qty_per_pair]" value="" class="hpc-field-qty" placeholder="0.00">
+                    <input type="number" step="any" min="0" name="hpc_rows[{{data.i}}][qty_per_pair]" value="" class="hpc-field-qty" placeholder="0.00"> <span class="hpc-qty-unit"></span>
                 </td>
                 <td class="hpc-col-costpair hpc-cell-costpair">&mdash;</td>
                 <td class="hpc-col-actions">
@@ -156,12 +165,15 @@ class HPC_Product_Metaboxes {
             $cost_per_moq = ( null !== $base_cost ) ? $base_cost : '';
         }
 
-        $currency    = HPC_Settings::currency();
+        $currency     = HPC_Settings::currency();
         $wastage      = $material_id ? HPC_Material_Data::get_wastage( $material_id ) : 0;
+        $area_per     = $material_id ? HPC_Material_Data::get_area_per_unit( $material_id ) : 0;
+        $area_unit    = $material_id ? HPC_Material_Data::get_area_unit( $material_id ) : '';
+        $qty_unit     = ( $area_per > 0 ) ? $area_unit : $unit;
         $moq_display  = ( '' !== $moq ) ? HPC_Material_Data::format_qty_unit( $moq, $unit ) : '';
         $cost_display = ( '' !== $cost_per_moq ) ? $currency . number_format( floatval( $cost_per_moq ), 2 ) : '';
         ?>
-        <tr class="hpc-row" data-index="<?php echo (int) $i; ?>" data-unit="<?php echo esc_attr( $unit ); ?>" data-wastage="<?php echo esc_attr( $wastage ); ?>" data-tiers="<?php echo esc_attr( wp_json_encode( $tiers ) ); ?>">
+        <tr class="hpc-row" data-index="<?php echo (int) $i; ?>" data-unit="<?php echo esc_attr( $unit ); ?>" data-wastage="<?php echo esc_attr( $wastage ); ?>" data-area-per-unit="<?php echo esc_attr( $area_per ); ?>" data-area-unit="<?php echo esc_attr( $area_unit ); ?>" data-tiers="<?php echo esc_attr( wp_json_encode( $tiers ) ); ?>">
             <td class="hpc-col-sort hpc-drag-handle">&#9776;</td>
             <td class="hpc-col-type">
                 <input type="text" name="hpc_rows[<?php echo (int) $i; ?>][material_type]" value="<?php echo esc_attr( $type ); ?>" class="hpc-field-type" placeholder="<?php esc_attr_e( 'e.g. Leather', 'hayk-product-costings' ); ?>">
@@ -181,7 +193,7 @@ class HPC_Product_Metaboxes {
                 <input type="text" name="hpc_rows[<?php echo (int) $i; ?>][moq]" value="<?php echo esc_attr( $moq_display ); ?>" class="hpc-field-moq" readonly>
             </td>
             <td class="hpc-col-qty">
-                <input type="number" step="any" min="0" name="hpc_rows[<?php echo (int) $i; ?>][qty_per_pair]" value="<?php echo esc_attr( $qty ); ?>" class="hpc-field-qty" placeholder="0.00">
+                <input type="number" step="any" min="0" name="hpc_rows[<?php echo (int) $i; ?>][qty_per_pair]" value="<?php echo esc_attr( $qty ); ?>" class="hpc-field-qty" placeholder="0.00"> <span class="hpc-qty-unit"><?php echo esc_html( $qty_unit ); ?></span>
             </td>
             <td class="hpc-col-costpair hpc-cell-costpair">&mdash;</td>
             <td class="hpc-col-actions">
@@ -189,6 +201,57 @@ class HPC_Product_Metaboxes {
                 <button type="button" class="button hpc-remove-row" title="<?php esc_attr_e( 'Remove', 'hayk-product-costings' ); ?>">&#x1F5D1;</button>
             </td>
         </tr>
+        <?php
+    }
+
+    /* ───────────────────────────────────────────────
+     * Production & Costs (optional overrides)
+     * ─────────────────────────────────────────────── */
+
+    public function render_production_metabox( $post ) {
+        $run       = get_post_meta( $post->ID, '_hpc_production_run', true );
+        $packaging = get_post_meta( $post->ID, '_hpc_packaging_cost_per_pair', true );
+        $labour    = get_post_meta( $post->ID, '_hpc_labour', true );
+        $facility  = get_post_meta( $post->ID, '_hpc_facility_running_costs', true );
+        $misc      = get_post_meta( $post->ID, '_hpc_miscellaneous_costs', true );
+        $currency  = HPC_Settings::currency();
+
+        // Show the current effective value (from the client's custom fields)
+        // as a placeholder so an empty override box isn't confusing.
+        $eff = array(
+            'production_run'          => HPC_Costing_Calculator::get_field( $post->ID, 'production_run' ),
+            'packaging_cost_per_pair' => HPC_Costing_Calculator::get_field( $post->ID, 'packaging_cost_per_pair' ),
+            'labour'                  => HPC_Costing_Calculator::get_field( $post->ID, 'labour' ),
+            'facility_running_costs'  => HPC_Costing_Calculator::get_field( $post->ID, 'facility_running_costs' ),
+            'miscellaneous_costs'     => HPC_Costing_Calculator::get_field( $post->ID, 'miscellaneous_costs' ),
+        );
+        $ph = function ( $v ) { return $v > 0 ? (string) rtrim( rtrim( number_format( $v, 4 ), '0' ), '.' ) : ''; };
+        ?>
+        <p class="description">
+            <?php esc_html_e( 'The production-run figures for this product. Production run is the number of pairs made; Packaging is a per-pair cost; Labour, Facility running costs and Miscellaneous cost are fixed totals for the whole run. (If a box is left blank and a matching legacy custom field still exists, that value — shown as the greyed placeholder — is used instead.)', 'hayk-product-costings' ); ?>
+        </p>
+        <table class="form-table" role="presentation">
+            <tr>
+                <th scope="row"><label for="hpc-production-run"><?php esc_html_e( 'Production run (pairs)', 'hayk-product-costings' ); ?></label></th>
+                <td><input type="number" step="any" min="0" id="hpc-production-run" name="hpc_production_run" value="<?php echo esc_attr( $run ); ?>" class="regular-text" placeholder="<?php echo esc_attr( $ph( $eff['production_run'] ) ); ?>"></td>
+            </tr>
+            <tr>
+                <th scope="row"><label for="hpc-packaging"><?php esc_html_e( 'Packaging cost per pair', 'hayk-product-costings' ); ?></label></th>
+                <td><?php echo esc_html( $currency ); ?><input type="number" step="any" min="0" id="hpc-packaging" name="hpc_packaging_cost_per_pair" value="<?php echo esc_attr( $packaging ); ?>" class="regular-text" placeholder="<?php echo esc_attr( $ph( $eff['packaging_cost_per_pair'] ) ); ?>"> <span class="description" id="hpc-packaging-total"></span></td>
+            </tr>
+            <tr>
+                <th scope="row"><label for="hpc-labour"><?php esc_html_e( 'Labour costs (run total)', 'hayk-product-costings' ); ?></label></th>
+                <td><?php echo esc_html( $currency ); ?><input type="number" step="any" min="0" id="hpc-labour" name="hpc_labour" value="<?php echo esc_attr( $labour ); ?>" class="regular-text" placeholder="<?php echo esc_attr( $ph( $eff['labour'] ) ); ?>"></td>
+            </tr>
+            <tr>
+                <th scope="row"><label for="hpc-facility"><?php esc_html_e( 'Facility running costs (run total)', 'hayk-product-costings' ); ?></label></th>
+                <td><?php echo esc_html( $currency ); ?><input type="number" step="any" min="0" id="hpc-facility" name="hpc_facility_running_costs" value="<?php echo esc_attr( $facility ); ?>" class="regular-text" placeholder="<?php echo esc_attr( $ph( $eff['facility_running_costs'] ) ); ?>"></td>
+            </tr>
+            <tr>
+                <th scope="row"><label for="hpc-misc"><?php esc_html_e( 'Miscellaneous cost (run total)', 'hayk-product-costings' ); ?></label></th>
+                <td><?php echo esc_html( $currency ); ?><input type="number" step="any" min="0" id="hpc-misc" name="hpc_miscellaneous_costs" value="<?php echo esc_attr( $misc ); ?>" class="regular-text" placeholder="<?php echo esc_attr( $ph( $eff['miscellaneous_costs'] ) ); ?>"></td>
+            </tr>
+        </table>
         <?php
     }
 
@@ -201,6 +264,7 @@ class HPC_Product_Metaboxes {
         // the summary is correct on load; JS keeps it live as the Materials
         // table is edited.
         $m        = HPC_Costing_Calculator::metrics( $post->ID );
+        $lines    = HPC_Costing_Calculator::material_lines( $post->ID );
         $currency = HPC_Settings::currency();
         $money    = function ( $v ) use ( $currency ) { return $currency . number_format( floatval( $v ), 2 ); };
         ?>
@@ -236,6 +300,29 @@ class HPC_Product_Metaboxes {
                     <td id="hpc-sum-pair"><strong><?php echo esc_html( $money( $m['single_pair_cost'] ) ); ?></strong></td>
                 </tr>
             </table>
+
+            <?php
+            $purchasing = array();
+            foreach ( $lines as $line ) {
+                if ( ! empty( $line['area_mode'] ) && $line['units_per_run'] > 0 ) {
+                    $purchasing[] = $line;
+                }
+            }
+            ?>
+            <div id="hpc-purchasing" style="<?php echo empty( $purchasing ) ? 'display:none;' : ''; ?>">
+                <h4 style="margin-bottom:4px;"><?php esc_html_e( 'Purchasing for this run (area-costed materials)', 'hayk-product-costings' ); ?></h4>
+                <table class="widefat striped">
+                    <tbody id="hpc-purchasing-body">
+                        <?php foreach ( $purchasing as $line ) : ?>
+                            <tr>
+                                <td><?php echo esc_html( $line['title'] ); ?></td>
+                                <td><?php echo esc_html( HPC_Material_Data::format_qty_unit( $line['units_per_run'], $line['unit'], false ) ); ?></td>
+                            </tr>
+                        <?php endforeach; ?>
+                    </tbody>
+                </table>
+                <p class="description"><?php esc_html_e( 'Whole purchase units to buy to cover the production run (net area × (1 + wastage %) ÷ average area per unit, rounded up).', 'hayk-product-costings' ); ?></p>
+            </div>
         </div>
         <?php
     }
@@ -278,10 +365,23 @@ class HPC_Product_Metaboxes {
         }
         update_post_meta( $post_id, '_hpc_material_rows', $clean );
 
-        // Production-run and cost inputs (Production Run, Packaging unit cost,
-        // Labour costs, Facility running costs, Miscellaneous cost) are the
-        // client's own custom fields (JetEngine), read by the calculator — the
-        // plugin does not manage them here.
+        // --- Production & Costs (optional per-product overrides) ---
+        // Blank = fall back to the client's own custom fields in the calculator.
+        $fields = array(
+            'hpc_production_run'          => '_hpc_production_run',
+            'hpc_packaging_cost_per_pair' => '_hpc_packaging_cost_per_pair',
+            'hpc_labour'                  => '_hpc_labour',
+            'hpc_facility_running_costs'  => '_hpc_facility_running_costs',
+            'hpc_miscellaneous_costs'     => '_hpc_miscellaneous_costs',
+        );
+        foreach ( $fields as $field => $meta_key ) {
+            $val = isset( $_POST[ $field ] ) ? trim( sanitize_text_field( wp_unslash( $_POST[ $field ] ) ) ) : '';
+            if ( '' === $val ) {
+                delete_post_meta( $post_id, $meta_key );
+            } else {
+                update_post_meta( $post_id, $meta_key, floatval( $val ) );
+            }
+        }
     }
 
     /**

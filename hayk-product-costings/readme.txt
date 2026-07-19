@@ -63,6 +63,20 @@ reaches, floored at the smallest MOQ. A single break always uses that break.
 
 == Changelog ==
 
+= 1.2.0 =
+* Leather / area costing: a material can now be bought by the unit (skins,
+  packs) but costed by area. Set "Average area per unit" (e.g. 1.2 m² per
+  skin) in Bulk Pricing; enter the net area per pair on the product and the
+  tool converts area → skins, works out cost per pair, and reports the whole
+  skins to buy for the run (Cost Summary → Purchasing). Materials without an
+  area-per-unit are still costed directly in their purchase unit.
+* Restored the Production & Costs inputs on the product (Production run,
+  Packaging per pair, Labour, Facility, Miscellaneous). These are the cost
+  inputs; if a box is left blank and a matching legacy custom field exists,
+  that value is used (shown as the placeholder).
+* Settings: Purchase Units is now a 3-field repeater (singular / plural /
+  units per) with add, remove and drag-to-reorder.
+
 = 1.1.0 =
 * Cost fields now read the client's own custom fields: production_run,
   packaging_unit_cost, labour_costs, facility_running_costs, and the new
