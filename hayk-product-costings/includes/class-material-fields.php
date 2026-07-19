@@ -53,41 +53,60 @@ class HPC_Material_Fields {
         wp_nonce_field( 'hpc_save_material_fields', 'hpc_material_fields_nonce' );
 
         $tiers    = HPC_Material_Data::get_price_tiers_raw( $post->ID );
-        $unit     = get_post_meta( $post->ID, HPC_Material_Data::META_UNIT, true );
-        $unit     = is_string( $unit ) ? $unit : '';
+        $unit     = HPC_Material_Data::get_unit( $post->ID );
+        $wastage  = get_post_meta( $post->ID, HPC_Material_Data::META_WASTAGE, true );
         $currency = HPC_Settings::currency();
-        $suggested = array( 'piece/s', 'm²', 'pair/s', 'metre/s', 'roll/s', 'sheet/s', 'kg', 'litre/s' );
+        $margin   = HPC_Settings::leather_margin_pct();
+        $units    = HPC_Material_Data::unit_options();
         ?>
         <p class="description">
-            <?php esc_html_e( 'Supplier pricing for this material. Set the purchase Unit (how the material is bought and measured — piece/s, m², pair/s, etc.) then add one row per quantity break. Each row is a Minimum Order Quantity (MOQ) and the total Cost to buy that quantity. The per-unit rate (Cost ÷ MOQ) is shown live and is what the product Materials table uses to work out cost per pair. Add more rows for volume discounts — the smallest MOQ is the base rate; a larger row is used automatically once a production run needs at least that many units.', 'hayk-product-costings' ); ?>
+            <?php esc_html_e( 'Supplier pricing for this material. Choose the purchase Unit (how the material is bought and measured — skins, pairs, pieces, packs, m², etc.) then add one row per quantity break. Each row is a Minimum Order Quantity (MOQ) and the total Cost to buy that quantity. The per-unit rate (Cost ÷ MOQ) is shown live and is what the product Materials table uses to work out cost per pair. Add more rows for volume discounts — the smallest MOQ is the base rate; a larger row is used automatically once a production run needs at least that many units.', 'hayk-product-costings' ); ?>
         </p>
         <p>
             <label>
                 <strong><?php esc_html_e( 'Purchase Unit', 'hayk-product-costings' ); ?></strong><br>
-                <input type="text" id="hpc-unit" name="hpc_unit" value="<?php echo esc_attr( $unit ); ?>" list="hpc-unit-list" style="width:160px;" placeholder="piece/s">
-                <datalist id="hpc-unit-list">
-                    <?php foreach ( $suggested as $s ) : ?>
-                        <option value="<?php echo esc_attr( $s ); ?>"></option>
-                    <?php endforeach; ?>
-                </datalist>
+                <select id="hpc-unit" name="hpc_unit" style="width:160px;">
+                    <?php
+                    $matched = false;
+                    foreach ( $units as $u ) {
+                        $sel = selected( $unit, $u, false );
+                        if ( '' !== $sel ) {
+                            $matched = true;
+                        }
+                        echo '<option value="' . esc_attr( $u ) . '" ' . $sel . '>' . esc_html( $u ) . '</option>';
+                    }
+                    // Preserve a previously saved unit no longer in the managed list.
+                    if ( ! $matched && '' !== $unit ) {
+                        echo '<option value="' . esc_attr( $unit ) . '" selected>' . esc_html( $unit ) . '</option>';
+                    }
+                    ?>
+                </select>
             </label>
-            <span class="description"><?php esc_html_e( 'Shown next to MOQ and Qty per pair on the product Materials table.', 'hayk-product-costings' ); ?></span>
+            <span class="description"><?php esc_html_e( 'Shown next to MOQ and Qty per pair on the product Materials table. Manage the list under Products → Costings Settings.', 'hayk-product-costings' ); ?></span>
+        </p>
+        <p>
+            <label>
+                <strong><?php esc_html_e( 'Wastage %', 'hayk-product-costings' ); ?></strong>
+                <input type="number" step="any" min="0" id="hpc-wastage" name="hpc_wastage_pct" value="<?php echo esc_attr( $wastage ); ?>" style="width:90px;" placeholder="0">%
+            </label>
+            <span class="description"><?php esc_html_e( 'Cutting / consumption allowance for irregular skins (e.g. 20 for 20%). The cost per pair is worked out on the net Qty per pair × (1 + wastage %). Leave 0 for non-leather materials.', 'hayk-product-costings' ); ?></span>
         </p>
 
-        <table class="widefat striped" id="hpc-price-tier-table" style="max-width:640px;">
+        <table class="widefat striped" id="hpc-price-tier-table" style="max-width:760px;">
             <thead>
                 <tr>
                     <th style="width:24px;">&nbsp;</th>
-                    <th style="width:150px;"><?php esc_html_e( 'MOQ (qty)', 'hayk-product-costings' ); ?></th>
-                    <th style="width:150px;"><?php esc_html_e( 'Cost per MOQ', 'hayk-product-costings' ); ?></th>
-                    <th style="width:150px;"><?php esc_html_e( '≈ Cost per unit', 'hayk-product-costings' ); ?></th>
+                    <th style="width:140px;"><?php esc_html_e( 'MOQ (qty)', 'hayk-product-costings' ); ?></th>
+                    <th style="width:140px;"><?php esc_html_e( 'Cost per MOQ', 'hayk-product-costings' ); ?></th>
+                    <th style="width:90px;" title="<?php echo esc_attr( sprintf( __( 'Uplift this row by the global Leather Margin (%s%%)', 'hayk-product-costings' ), $margin ) ); ?>"><?php esc_html_e( 'Apply margin', 'hayk-product-costings' ); ?></th>
+                    <th style="width:180px;"><?php esc_html_e( '≈ Cost per unit', 'hayk-product-costings' ); ?></th>
                     <th style="width:40px;">&nbsp;</th>
                 </tr>
             </thead>
             <tbody id="hpc-price-tier-body">
                 <?php
                 if ( empty( $tiers ) ) {
-                    $tiers = array( array( 'qty' => '', 'cost' => '' ) );
+                    $tiers = array( array( 'qty' => '', 'cost' => '', 'apply_margin' => false ) );
                 }
                 foreach ( $tiers as $i => $tier ) :
                     ?>
@@ -95,6 +114,7 @@ class HPC_Material_Fields {
                         <td class="hpc-tier-drag" title="<?php esc_attr_e( 'Drag to reorder', 'hayk-product-costings' ); ?>" style="cursor:move;text-align:center;color:#888;">&#9776;</td>
                         <td><input type="number" step="any" min="0" name="hpc_price_tiers[<?php echo (int) $i; ?>][qty]" value="<?php echo esc_attr( $tier['qty'] ); ?>" class="widefat hpc-tier-qty" placeholder="1000"></td>
                         <td><input type="number" step="any" min="0" name="hpc_price_tiers[<?php echo (int) $i; ?>][cost]" value="<?php echo esc_attr( $tier['cost'] ); ?>" class="widefat hpc-tier-cost" placeholder="2450"></td>
+                        <td style="text-align:center;"><input type="checkbox" name="hpc_price_tiers[<?php echo (int) $i; ?>][apply_margin]" value="1" class="hpc-tier-margin" <?php checked( ! empty( $tier['apply_margin'] ) ); ?>></td>
                         <td class="hpc-tier-rate">&mdash;</td>
                         <td><button type="button" class="button hpc-tier-remove">&times;</button></td>
                     </tr>
@@ -106,12 +126,14 @@ class HPC_Material_Fields {
         <script>
         jQuery(function ($) {
             var currency = <?php echo wp_json_encode( $currency ); ?>;
+            var margin   = <?php echo wp_json_encode( $margin ); ?>;
 
             function rowMarkup(idx) {
                 return '<tr>' +
                     '<td class="hpc-tier-drag" title="<?php echo esc_js( __( 'Drag to reorder', 'hayk-product-costings' ) ); ?>" style="cursor:move;text-align:center;color:#888;">&#9776;</td>' +
                     '<td><input type="number" step="any" min="0" name="hpc_price_tiers[' + idx + '][qty]" class="widefat hpc-tier-qty" placeholder="1000"></td>' +
                     '<td><input type="number" step="any" min="0" name="hpc_price_tiers[' + idx + '][cost]" class="widefat hpc-tier-cost" placeholder="2450"></td>' +
+                    '<td style="text-align:center;"><input type="checkbox" name="hpc_price_tiers[' + idx + '][apply_margin]" value="1" class="hpc-tier-margin"></td>' +
                     '<td class="hpc-tier-rate">&mdash;</td>' +
                     '<td><button type="button" class="button hpc-tier-remove">&times;</button></td>' +
                     '</tr>';
@@ -119,12 +141,19 @@ class HPC_Material_Fields {
 
             function refresh() {
                 var unit = $('#hpc-unit').val() || '';
+                var perUnit = unit ? unit.replace(/s$/, '') : '';
                 $('#hpc-price-tier-body tr').each(function () {
                     var qty  = parseFloat($(this).find('.hpc-tier-qty').val()) || 0;
                     var cost = parseFloat($(this).find('.hpc-tier-cost').val()) || 0;
+                    var mrg  = $(this).find('.hpc-tier-margin').is(':checked');
                     var $cell = $(this).find('.hpc-tier-rate');
                     if (qty > 0 && cost > 0) {
-                        $cell.text(currency + (cost / qty).toFixed(4) + (unit ? ' / ' + unit.replace(/\/s$/, '') : ''));
+                        var rate = cost / qty;
+                        var txt = currency + rate.toFixed(4) + (perUnit ? ' / ' + perUnit : '');
+                        if (mrg && margin > 0) {
+                            txt += ' → ' + currency + (rate * (1 + margin / 100)).toFixed(4) + ' (+' + margin + '%)';
+                        }
+                        $cell.text(txt);
                     } else {
                         $cell.text('—');
                     }
@@ -139,7 +168,7 @@ class HPC_Material_Fields {
                 $(this).closest('tr').remove();
                 refresh();
             });
-            $('#hpc-price-tier-table').on('input change', '.hpc-tier-qty, .hpc-tier-cost', refresh);
+            $('#hpc-price-tier-table').on('input change', '.hpc-tier-qty, .hpc-tier-cost, .hpc-tier-margin', refresh);
             $('#hpc-unit').on('input change', refresh);
 
             if ($.fn.sortable) {
@@ -181,7 +210,7 @@ class HPC_Material_Fields {
                                 <?php echo esc_html( get_the_title( $u['product_id'] ) ); ?>
                             </a>
                         </td>
-                        <td><?php echo esc_html( rtrim( rtrim( number_format( $u['qty_per_pair'], 4 ), '0' ), '.' ) . ' ' . $unit ); ?></td>
+                        <td><?php echo esc_html( HPC_Material_Data::format_qty_unit( $u['qty_per_pair'], $unit ) ); ?></td>
                     </tr>
                 <?php endforeach; ?>
             </tbody>
@@ -218,7 +247,15 @@ class HPC_Material_Fields {
             update_post_meta( $post_id, HPC_Material_Data::META_UNIT, $unit );
         }
 
-        // Bulk pricing tiers (MOQ qty + total cost per MOQ).
+        // Wastage % (cutting / consumption allowance).
+        $wastage = isset( $_POST['hpc_wastage_pct'] ) ? floatval( wp_unslash( $_POST['hpc_wastage_pct'] ) ) : 0;
+        if ( $wastage > 0 ) {
+            update_post_meta( $post_id, HPC_Material_Data::META_WASTAGE, $wastage );
+        } else {
+            delete_post_meta( $post_id, HPC_Material_Data::META_WASTAGE );
+        }
+
+        // Bulk pricing tiers (MOQ qty + total cost per MOQ + margin flag).
         $raw_tiers   = isset( $_POST['hpc_price_tiers'] ) && is_array( $_POST['hpc_price_tiers'] ) ? wp_unslash( $_POST['hpc_price_tiers'] ) : array();
         $clean_tiers = array();
         foreach ( $raw_tiers as $tier ) {
@@ -227,7 +264,11 @@ class HPC_Material_Fields {
             if ( $qty <= 0 || $cost <= 0 ) {
                 continue;
             }
-            $clean_tiers[] = array( 'qty' => $qty, 'cost' => $cost );
+            $clean_tiers[] = array(
+                'qty'          => $qty,
+                'cost'         => $cost,
+                'apply_margin' => ! empty( $tier['apply_margin'] ),
+            );
         }
         if ( empty( $clean_tiers ) ) {
             delete_post_meta( $post_id, HPC_Material_Data::META_TIERS );

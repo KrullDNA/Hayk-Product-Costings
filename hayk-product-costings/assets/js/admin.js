@@ -1,6 +1,17 @@
 (function ($) {
     'use strict';
 
+    // Map of logical cost field -> the client's custom field name(s) to read
+    // live from the edit screen (JetEngine/ACF inputs), falling back to the
+    // server-provided baseline in hpcData.fields.
+    var FIELD_INPUTS = {
+        production_run:          ['production_run'],
+        packaging_cost_per_pair: ['packaging_unit_cost'],
+        labour:                  ['labour_costs'],
+        facility_running_costs:  ['facility_running_costs'],
+        miscellaneous_costs:     ['miscellaneous_cost']
+    };
+
     var HPC = {
         nextIndex: 0,
 
@@ -20,8 +31,56 @@
             return (window.hpcData && hpcData.currency) ? hpcData.currency : '$';
         },
 
+        margin: function () {
+            return (window.hpcData && hpcData.leatherMargin) ? parseFloat(hpcData.leatherMargin) || 0 : 0;
+        },
+
+        /**
+         * Read a cost field: prefer a live input on the page (the client's
+         * custom field), else the server baseline localized in hpcData.fields.
+         */
+        field: function (key) {
+            var names = FIELD_INPUTS[key] || [];
+            for (var i = 0; i < names.length; i++) {
+                var $inp = $('[name="' + names[i] + '"], [name="_' + names[i] + '"]').filter('input, select, textarea').first();
+                if ($inp.length) {
+                    var v = parseFloat($inp.val());
+                    if (!isNaN(v)) return v;
+                }
+            }
+            if (window.hpcData && hpcData.fields && typeof hpcData.fields[key] !== 'undefined') {
+                return parseFloat(hpcData.fields[key]) || 0;
+            }
+            return 0;
+        },
+
         run: function () {
-            return parseFloat($('#hpc-production-run').val()) || 0;
+            return this.field('production_run');
+        },
+
+        unitInfo: function (unit) {
+            if (window.hpcData && hpcData.units && hpcData.units[unit]) {
+                return hpcData.units[unit];
+            }
+            return { singular: unit || '', plural: unit || '', units_per: 1 };
+        },
+
+        fmtNum: function (v) {
+            v = parseFloat(v) || 0;
+            if (Math.floor(v) === v) return String(v);
+            return parseFloat(v.toFixed(4)).toString();
+        },
+
+        fmtQtyUnit: function (qty, unit) {
+            qty = parseFloat(qty) || 0;
+            var info = this.unitInfo(unit);
+            var label = (Math.abs(qty - 1) < 1e-9) ? info.singular : info.plural;
+            var out = this.fmtNum(qty) + (label ? ' ' + label : '');
+            var per = parseFloat(info.units_per) || 1;
+            if (per > 1 && qty > 0) {
+                out += ' (' + this.fmtNum(qty * per) + ' units)';
+            }
+            return out;
         },
 
         /* ── Sortable ── */
@@ -108,6 +167,7 @@
                 success: function (res) {
                     if (res.success && res.data) {
                         $row.attr('data-unit', res.data.unit || '');
+                        $row.attr('data-wastage', res.data.wastage || 0);
                         $row.attr('data-tiers', JSON.stringify(res.data.tiers || []));
                         HPC.recalc();
                     }
@@ -139,7 +199,6 @@
             this.$body.on('click', '.hpc-duplicate-row', function () {
                 var $orig = $(this).closest('.hpc-row');
                 var $clone = $orig.clone();
-                // Reset the cloned select's search wrapper so it re-initialises.
                 $clone.find('.hpc-material-search-wrap').remove();
                 $clone.find('.hpc-field-material').show().removeData('hpc-init');
                 $orig.after($clone);
@@ -152,7 +211,15 @@
                 self.recalc();
             });
 
-            $('#hpc-production-run, #hpc-packaging, #hpc-labour, #hpc-facility').on('input change', function () {
+            // Recalculate live when the client's custom cost fields change.
+            var selectors = [];
+            $.each(FIELD_INPUTS, function (_, names) {
+                $.each(names, function (_, n) {
+                    selectors.push('[name="' + n + '"]');
+                    selectors.push('[name="_' + n + '"]');
+                });
+            });
+            $(document).on('input change', selectors.join(','), function () {
                 self.recalc();
             });
 
@@ -206,14 +273,9 @@
             return {
                 qty: chosen.qty,
                 cost: chosen.cost,
-                rate: chosen.qty > 0 ? chosen.cost / chosen.qty : 0
+                rate: chosen.qty > 0 ? chosen.cost / chosen.qty : 0,
+                apply_margin: !!chosen.apply_margin
             };
-        },
-
-        fmtQty: function (v) {
-            v = parseFloat(v) || 0;
-            if (Math.floor(v) === v) return String(v);
-            return parseFloat(v.toFixed(4)).toString();
         },
 
         /* ── Recalculate all rows + summary ── */
@@ -221,6 +283,7 @@
             var self = this;
             var run = this.run();
             var cur = this.currency();
+            var margin = this.margin();
             var materialPerPair = 0;
 
             this.$body.find('.hpc-row').each(function () {
@@ -228,14 +291,21 @@
                 var tiers = [];
                 try { tiers = JSON.parse($row.attr('data-tiers') || '[]'); } catch (e) { tiers = []; }
                 var unit = $row.attr('data-unit') || '';
+                var wastage = parseFloat($row.attr('data-wastage')) || 0;
                 var qty  = parseFloat($row.find('.hpc-field-qty').val()) || 0;
-                var needed = qty * run;
+
+                var effPerPair = qty * (1 + wastage / 100);
+                var needed = effPerPair * run;
 
                 var tier = self.applicableTier(tiers, needed);
                 if (tier) {
+                    var rate = tier.rate;
+                    if (tier.apply_margin && margin > 0) {
+                        rate = rate * (1 + margin / 100);
+                    }
                     $row.find('.hpc-field-costmoq').val(cur + tier.cost.toFixed(2));
-                    $row.find('.hpc-field-moq').val(self.fmtQty(tier.qty) + (unit ? ' ' + unit : ''));
-                    var costPair = tier.rate * qty;
+                    $row.find('.hpc-field-moq').val(self.fmtQtyUnit(tier.qty, unit));
+                    var costPair = rate * effPerPair;
                     materialPerPair += costPair;
                     $row.find('.hpc-cell-costpair').text(costPair > 0 ? cur + costPair.toFixed(2) : '—');
                 } else {
@@ -245,26 +315,25 @@
 
             $('#hpc-total-costpair').html('<strong>' + cur + materialPerPair.toFixed(2) + '</strong>');
 
-            // Summary metrics.
-            var packaging = parseFloat($('#hpc-packaging').val()) || 0;
-            var labour    = parseFloat($('#hpc-labour').val()) || 0;
-            var facility  = parseFloat($('#hpc-facility').val()) || 0;
+            // Summary metrics from the client's cost fields.
+            var packaging = this.field('packaging_cost_per_pair');
+            var labour    = this.field('labour');
+            var facility  = this.field('facility_running_costs');
+            var misc      = this.field('miscellaneous_costs');
 
-            var matRun    = materialPerPair * run;
-            var pkgRun    = packaging * run;
-            var mfg       = labour + facility;
-            var full      = matRun + pkgRun + mfg;
-            var perPair   = run > 0 ? full / run : 0;
+            var matRun  = materialPerPair * run;
+            var pkgRun  = packaging * run;
+            var mfg     = labour + facility;
+            var full    = matRun + pkgRun + mfg + misc;
+            var perPair = run > 0 ? full / run : 0;
 
             $('#hpc-sum-matpair').text(cur + materialPerPair.toFixed(2));
             $('#hpc-sum-matrun').text(cur + matRun.toFixed(2));
             $('#hpc-sum-pkg').text(cur + pkgRun.toFixed(2));
             $('#hpc-sum-mfg').text(cur + mfg.toFixed(2));
+            $('#hpc-sum-misc').text(cur + misc.toFixed(2));
             $('#hpc-sum-full').html('<strong>' + cur + full.toFixed(2) + '</strong>');
             $('#hpc-sum-pair').html('<strong>' + cur + perPair.toFixed(2) + '</strong>');
-
-            // Packaging run-total hint next to the field.
-            $('#hpc-packaging-total').text(run > 0 ? '= ' + cur + pkgRun.toFixed(2) + ' for the run' : '');
         }
     };
 
